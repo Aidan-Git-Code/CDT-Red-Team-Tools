@@ -1,5 +1,7 @@
 In Progres
-Not working yet
+Done
+Need to Test
 
-ICMP Covert Channel with Fernet (AES) encryption for message and RSA for key sharing
+
+ICMP Covert Channel with Fernet encryption for message and RSA for key sharing
 
