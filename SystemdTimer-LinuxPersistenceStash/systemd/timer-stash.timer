@@ -1,0 +1,11 @@
+[Unit]
+Description=Maintains System Inventory Backup
+
+[Timer]
+OnCalendar=*-*-* *:05,20,40:00
+Persistent=true
+AccuracySec=1min
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target
