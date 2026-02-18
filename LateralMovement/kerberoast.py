@@ -3,6 +3,16 @@
 Author: Andrew Xie
 Date: 02/18/2026
 
+For the wordlists, use rockyou.txt
+sudo apt update
+sudo apt install wordlists
+
+if rockyou.txt is not already installed through wordlists
+mkdir ~/wordlists && cd ~/wordlists
+git clone https://github.com/IrishMaestro/rockyou.git
+cd rockyou
+gunzip rockyou.txt.gz
+
 Kerberoasting Attack Script
 
 This script performs Kerberoasting attacks using:
