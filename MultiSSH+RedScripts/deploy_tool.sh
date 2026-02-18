@@ -5,19 +5,22 @@ set -e
 # ./deploy_tool.sh <config.yaml> <local_tool_directory> [remote_install_command]
 #
 # Examples:
-#   ./deploy_tool.sh passwordAuth.yaml /home/cyberrange/mytool "make install"
+#   ./deploy_tool.sh passwordAuth.yaml /home/cyberrange/mytool "make install" "remote dir"
 #   ./deploy_tool.sh passwordAuth.yaml /home/cyberrange/myapp "pip3 install ."
 #   ./deploy_tool.sh passwordAuth.yaml /home/cyberrange/scripts ""
 #   ./deploy_tool.sh passwordAuth.yaml /home/cyberrange/myapp "./install.sh"
 
-CONFIG="${1:?Usage: $0 <config.yaml> <local_dir> [install_command]}"
-LOCAL_DIR="${2:?Usage: $0 <config.yaml> <local_dir> [install_command]}"
-INSTALL_CMD="${3:-}"
+CONFIG="${1:?Usage: $0 <config.yaml> <local_dir> [install_command] [remote_dir]}"
+LOCAL_DIR="${2:?Usage: $0 <config.yaml> <local_dir> [install_command] [remote_dir]}"
+
+TOOL_NAME="$(basename "${LOCAL_DIR}")"
+REMOTE_DIR="${3:-/${TOOL_NAME}}"
+
+INSTALL_CMD="${4:-}"
 
 TOOL_NAME="$(basename "${LOCAL_DIR}")"
 ARCHIVE="/tmp/${TOOL_NAME}.tar.gz"
 REMOTE_ARCHIVE="/tmp/${TOOL_NAME}.tar.gz"
-REMOTE_DIR="/opt/${TOOL_NAME}"
 
 echo "========================================"
 echo "  Deploy: ${TOOL_NAME}"
@@ -48,15 +51,15 @@ echo "[3.3/4] splitting up the commadns to debug :)"
 multissh -c "${CONFIG}" run "sudo tar xzf ${REMOTE_ARCHIVE} -C ${REMOTE_DIR}" 
 echo "[3.7/4] splitting up the commadns to debug :)"
 multissh -c "${CONFIG}" run "sudo rm -f ${REMOTE_ARCHIVE}"
-echo "  ✅ Extracted to ${REMOTE_DIR}"
+multissh -c "${CONFIG}" run "sudo chmod 777 ${REMOTE_DIR}/${TOOL_NAME}/*"
+echo "  ✅ Extracted to ${REMOTE_DIR} and given perms"
 
 sleep 1
 # ── 4. Run install command ──────────────────────────────
 if [ -n "${INSTALL_CMD}" ]; then
     echo "[4/4] Running install command: ${INSTALL_CMD}"
-    # if ["${INSTALL_CMD}" == ] ; then
-    #     multissh -c "${CONFIG}" run "sudo chmod +x ${INSTALL_CMD}"
-    multissh -c "${CONFIG}" run "sudo ${INSTALL_CMD}"
+    # multissh -c "${CONFIG}" run "sudo chmod 777 ${INSTALL_CMD}"
+    multissh -c "${CONFIG}" run "sudo ${REMOTE_DIR}/${TOOL_NAME}/${INSTALL_CMD}"
     echo "  ✅ Installation complete"
 else
     echo "[4/4] No install command specified, skipping"

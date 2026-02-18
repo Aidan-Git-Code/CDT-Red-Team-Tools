@@ -83,8 +83,6 @@ if [ -f ~/.zshrc ]; then
     fi
 fi
 
-# Activate
-multissh-activate
 
 # ── Done ────────────────────────────────────────────────
 echo ""
