@@ -9,5 +9,5 @@ Not the prettiest output but it works
 
 No error handling if server is closed (will just wait)
 
-Working C2 for Linux and SHOULD work for Windows
+Working C2 for Linux
 
