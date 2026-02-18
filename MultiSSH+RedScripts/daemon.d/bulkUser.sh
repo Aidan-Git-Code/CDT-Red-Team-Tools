@@ -4,7 +4,7 @@
 
 
 # ── Configuration ────────────────────────────────────────
-PASSWORD="redteam123"       # Default password for all generated users
+PASSWORD="redteam123?"       # Default password for all generated users
 SUDO_GROUP="sudo"           # Change to 'wheel' on RHEL/CentOS
 SHELL="/bin/bash"
 

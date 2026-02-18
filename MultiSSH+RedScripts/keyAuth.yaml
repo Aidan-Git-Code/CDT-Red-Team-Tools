@@ -1,7 +1,7 @@
 defaults:
-  username: blueteam
+  username: dbadmin
   auth_method: key
-  key_path: ~/.ssh/blueteam
+  key_path: ~/.ssh/dbadmin
   connect_timeout: 10
   command_timeout: 30
 
@@ -22,7 +22,7 @@ hosts:
     hostname: 10.10.10.29
     tags: [Linux, production]
 
-  - label: svc-webdb-01
+  - label: svc-webdb-02
     hostname: 10.10.10.30
     tags: [Linux, production]
 

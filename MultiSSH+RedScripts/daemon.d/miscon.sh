@@ -14,7 +14,7 @@ echo "[RED TEAM] SSH misconfigured"
 # --- World-writable sensitive directories ---
 chmod 777 /etc/cron.d
 chmod 777 /tmp
-echo "[RED TEAM] Permissions loosened" >> /tmp/redteam_actions.log
+echo "[RED TEAM] Permissions loosened"
 
 # --- Weak sudoers entry ---
 echo "ALL ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
