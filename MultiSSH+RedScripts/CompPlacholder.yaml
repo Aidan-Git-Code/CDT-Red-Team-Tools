@@ -1,0 +1,65 @@
+defaults:
+  auth_method: password
+  connect_timeout: 15
+  command_timeout: 60
+
+hosts:
+  - label: svc-ftp-01
+    hostname: 10.10.10.36
+    username: Blueteam
+    password: "Blueteam123!"
+    tags: [Linux, production]
+
+  - label: svc-webdb-01
+    hostname: 10.10.10.27
+    username: Blueteam
+    password: "Blueteam123!"
+    tags: [Linux, production]
+
+  - label: svc-cache-01
+    hostname: 10.10.10.28
+    username: Blueteam
+    password: "Blueteam123!"
+    tags: [Linux, production]
+
+  - label: svc-irc-01
+    hostname: 10.10.10.29
+    username: Blueteam
+    password: "Blueteam123!"
+    tags: [Linux, production]
+
+  - label: svc-webdb-01
+    hostname: 10.10.10.30
+    username: Blueteam
+    password: "Blueteam123!"
+    tags: [Linux, production]
+
+  - label: cell-nix-01
+    hostname: 10.10.10.31
+    username: Blueteam
+    password: "Blueteam123!"
+    tags: [Linux, production]
+
+  - label: cell-nix-02
+    hostname: 10.10.10.32
+    username: Blueteam
+    password: "Blueteam123!"
+    tags: [Linux, production]
+
+  - label: cell-nix-03
+    hostname: 10.10.10.33
+    username: Blueteam
+    password: "Blueteam123!"
+    tags: [Linux, production]
+
+  - label: cell-nix-04
+    hostname: 10.10.10.34
+    username: Blueteam
+    password: "Blueteam123!"
+    tags: [Linux, production]
+
+  - label: cell-nix-05
+    hostname: 10.10.10.35
+    username: Blueteam
+    password: "Blueteam123!"
+    tags: [Linux, production]

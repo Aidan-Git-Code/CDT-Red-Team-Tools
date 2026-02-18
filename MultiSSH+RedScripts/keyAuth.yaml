@@ -1,0 +1,47 @@
+defaults:
+  username: blueteam
+  auth_method: key
+  key_path: ~/.ssh/blueteam
+  connect_timeout: 10
+  command_timeout: 30
+
+hosts:
+  - label: svc-ftp-01
+    hostname: 10.10.10.36
+    tags: [Linux, production]
+
+  - label: svc-webdb-01
+    hostname: 10.10.10.27
+    tags: [Linux, production]
+
+  - label: svc-cache-01
+    hostname: 10.10.10.28
+    tags: [Linux, production]
+
+  - label: svc-irc-01
+    hostname: 10.10.10.29
+    tags: [Linux, production]
+
+  - label: svc-webdb-01
+    hostname: 10.10.10.30
+    tags: [Linux, production]
+
+  - label: cell-nix-01
+    hostname: 10.10.10.31
+    tags: [Linux, production]
+
+  - label: cell-nix-02
+    hostname: 10.10.10.32
+    tags: [Linux, production]
+
+  - label: cell-nix-03
+    hostname: 10.10.10.33
+    tags: [Linux, production]
+
+  - label: cell-nix-04
+    hostname: 10.10.10.34
+    tags: [Linux, production]
+
+  - label: cell-nix-05
+    hostname: 10.10.10.35
+    tags: [Linux, production]
