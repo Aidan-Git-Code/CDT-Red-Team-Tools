@@ -1,7 +1,0 @@
-{
-    "output_filename": "redteam_full_scan_output",
-    "anaylze_filename": "redteam_output_scanned",
-    "output_number": 10,
-    "anaylze_number": 3,
-    "always_print": false
-}
