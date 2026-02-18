@@ -1,2 +1,2 @@
-./MultiSSH+RedScripts/passwordAuth.yaml
-./MultiSSH+RedScripts/multissh_logs/*
+MultiSSH+RedScripts/multissh_logs/**
+MultiSSH+RedScripts/passwordAuth.yaml
