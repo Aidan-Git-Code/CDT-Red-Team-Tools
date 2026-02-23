@@ -1,3 +1,4 @@
 MultiSSH+RedScripts/multissh_logs/**
 MultiSSH+RedScripts/passwordAuth.yaml
 MultiSSH+RedScripts/.venv/**
+MultiSSH+RedScripts/exploitT.yaml

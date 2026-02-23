@@ -1,6 +1,8 @@
 from __future__ import annotations
 import asyncio
+import shlex
 import time
+import uuid
 from typing import Optional
 
 import asyncssh
@@ -328,13 +330,41 @@ class SSHSession:
 
     # ── File transfer ────────────────────────────────────────────
 
-    async def upload(self, local_path: str, remote_path: str) -> bool:
+    async def upload(
+        self,
+        local_path: str,
+        remote_path: str,
+        sudo: bool = False,
+        sudo_password: Optional[str] = None,
+    ) -> bool:
         if not self.connected:
             return False
         try:
-            async with self._conn.start_sftp_client() as sftp:
-                await sftp.put(local_path, remote_path)
-            return True
+            if sudo:
+                temp_path = f"/tmp/.multissh_upload_{uuid.uuid4().hex}"
+                async with self._conn.start_sftp_client() as sftp:
+                    await sftp.put(local_path, temp_path)
+                try:
+                    move_cmd = f"mv {shlex.quote(temp_path)} {shlex.quote(remote_path)}"
+                    result = await self.execute(
+                        move_cmd,
+                        sudo=True,
+                        sudo_password=sudo_password or self.host.effective_sudo_password,
+                    )
+                    if not result.success:
+                        async with self._conn.start_sftp_client() as sftp:
+                            try:
+                                await sftp.remove(temp_path)
+                            except (asyncssh.Error, OSError):
+                                pass
+                        return False
+                    return True
+                except (asyncssh.Error, OSError):
+                    return False
+            else:
+                async with self._conn.start_sftp_client() as sftp:
+                    await sftp.put(local_path, remote_path)
+                return True
         except (asyncssh.Error, OSError):
             return False
 

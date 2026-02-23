@@ -251,12 +251,19 @@ class SessionManager:
         local_path: str,
         remote_path: str,
         tags: Optional[list[str]] = None,
+        sudo: bool = False,
+        sudo_password: Optional[str] = None,
     ) -> dict[str, bool]:
         target_hosts = self.get_hosts(tags)
 
         async def _upload(session: SSHSession) -> tuple[str, bool]:
             async with self._semaphore:
-                ok = await session.upload(local_path, remote_path)
+                ok = await session.upload(
+                    local_path,
+                    remote_path,
+                    sudo=sudo,
+                    sudo_password=sudo_password,
+                )
                 return session.host.display_name, ok
 
         sessions = [

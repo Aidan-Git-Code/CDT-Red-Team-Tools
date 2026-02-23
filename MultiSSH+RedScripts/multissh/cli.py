@@ -308,8 +308,10 @@ def _print_interactive_result(result: CommandResult, display: dict):
 @click.argument("local_path")
 @click.argument("remote_path")
 @click.option("--tags", "-t", multiple=True, help="Filter hosts by tags")
+@click.option("--sudo", is_flag=True, help="Upload to temp then sudo mv to destination")
+@click.option("--sudo-password", default=None, help="Sudo password (overrides config)")
 @click.pass_context
-def upload(ctx, local_path, remote_path, tags):
+def upload(ctx, local_path, remote_path, tags, sudo, sudo_password):
     """Upload a file to all hosts."""
     asyncio.run(
         _upload_file(
@@ -320,11 +322,17 @@ def upload(ctx, local_path, remote_path, tags):
             local_path,
             remote_path,
             list(tags) if tags else None,
+            sudo,
+            sudo_password,
         )
     )
 
 
-async def _upload_file(hosts, concurrency, log_dir, enable_logging, local_path, remote_path, tags):
+async def _upload_file(hosts, concurrency, log_dir, enable_logging, local_path, remote_path, tags, sudo, sudo_password):
+    if not os.path.isfile(local_path):
+        console.print(f"[bold red]Local path is not a file or does not exist: {local_path}[/bold red]")
+        return
+
     async with SessionManager(
         max_concurrency=concurrency,
         log_dir=log_dir,
@@ -347,25 +355,12 @@ async def _upload_file(hosts, concurrency, log_dir, enable_logging, local_path, 
             + (f", [red]❌ {failed} failed[/red]" if failed else "")
         )
 
-        console.print(f"\n[bold]Uploading [cyan]{local_path}[/cyan] → [cyan]{remote_path}[/cyan][/bold]\n")
+        prefix = " [sudo] " if sudo else ""
+        console.print(f"\n[bold]Uploading{prefix}[cyan]{local_path}[/cyan] → [cyan]{remote_path}[/cyan][/bold]\n")
 
-        # Upload to each connected host
-        target_hosts = mgr.get_hosts(tags) if hasattr(mgr, 'get_hosts') else hosts
-        results = {}
-
-        for host in target_hosts:
-            name = host.display_name
-            if name not in mgr._sessions:
-                continue
-            session = mgr._sessions[name]
-            if not session.connected:
-                results[name] = False
-                continue
-            try:
-                ok = await session.upload(local_path, remote_path)
-                results[name] = ok
-            except Exception:
-                results[name] = False
+        results = await mgr.upload_all(
+            local_path, remote_path, tags, sudo=sudo, sudo_password=sudo_password
+        )
 
         for host_name, success in results.items():
             if success:
