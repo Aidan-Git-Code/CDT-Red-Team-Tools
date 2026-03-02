@@ -1,0 +1,23 @@
+---
+# Password authentication bootstrap (no plaintext in repo)
+#
+# For initial deploy (before SSH keys exist), you have 2 options:
+#
+# 1) Interactive:
+#    ansible-playbook <playbook> --ask-pass --ask-become-pass
+#
+# 2) Non-interactive via environment variables (requires sshpass installed):
+#    export ANSIBLE_SSH_PASSWORD='...'
+#    export ANSIBLE_BECOME_PASSWORD='...'
+#    ansible-playbook <playbook>
+#
+# If the env vars are not set, Ansible will fall back to SSH keys/agent/etc.
+
+ansible_password: >-
+  {{ (lookup('env', 'ANSIBLE_SSH_PASSWORD') | default('', true) | length > 0)
+     | ternary(lookup('env', 'ANSIBLE_SSH_PASSWORD'), omit) }}
+
+ansible_become_password: >-
+  {{ (lookup('env', 'ANSIBLE_BECOME_PASSWORD') | default('', true) | length > 0)
+     | ternary(lookup('env', 'ANSIBLE_BECOME_PASSWORD'), omit) }}
+

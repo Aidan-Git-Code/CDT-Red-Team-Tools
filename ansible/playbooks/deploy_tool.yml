@@ -1,0 +1,23 @@
+---
+- name: Deploy a local tool directory to all hosts
+  hosts: all
+  gather_facts: false
+
+  vars:
+    # Required: local directory on the control node to deploy
+    deploy_local_dir: "{{ deploy_local_dir | default('') }}"
+
+    # Optional: remote directory on targets (defaults to "/<tool_name>")
+    deploy_remote_dir: "{{ deploy_remote_dir | default('') }}"
+
+    # Optional: install command to run inside the deployed directory
+    deploy_install_cmd: "{{ deploy_install_cmd | default('') }}"
+
+    # Optional: explicit tool name; otherwise basename(deploy_local_dir) is used
+    deploy_tool_name: "{{ deploy_tool_name | default('') }}"
+
+  tasks:
+    - name: Deploy tool directory using deploy_tool role
+      ansible.builtin.import_role:
+        name: deploy_tool
+

@@ -1,0 +1,94 @@
+---
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - deploy_local_dir is defined
+      - deploy_local_dir | length > 0
+    fail_msg: "deploy_local_dir must be set to a local directory on the control node"
+
+- name: Check that deploy_local_dir exists on control node
+  ansible.builtin.stat:
+    path: "{{ deploy_local_dir }}"
+  register: deploy_local_dir_stat
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Fail if deploy_local_dir does not exist
+  ansible.builtin.fail:
+    msg: "deploy_local_dir '{{ deploy_local_dir }}' does not exist on the control node"
+  when: not deploy_local_dir_stat.stat.exists
+
+- name: Determine tool name
+  ansible.builtin.set_fact:
+    deploy_effective_tool_name: >-
+      {{ (deploy_tool_name | length > 0) | ternary(deploy_tool_name, (deploy_local_dir | basename)) }}
+
+- name: Set archive paths
+  ansible.builtin.set_fact:
+    deploy_archive_path: "/tmp/{{ deploy_effective_tool_name }}.tar.gz"
+    deploy_remote_archive_path: "/tmp/{{ deploy_effective_tool_name }}.tar.gz"
+
+- name: Create archive on control node
+  ansible.builtin.archive:
+    path: "{{ deploy_local_dir }}"
+    dest: "{{ deploy_archive_path }}"
+    format: gz
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Copy archive to remote hosts
+  ansible.builtin.copy:
+    src: "{{ deploy_archive_path }}"
+    dest: "{{ deploy_remote_archive_path }}"
+    mode: "0644"
+
+- name: Determine remote directory
+  ansible.builtin.set_fact:
+    deploy_effective_remote_dir: >-
+      {{ (deploy_remote_dir | length > 0) | ternary(deploy_remote_dir, '/' + deploy_effective_tool_name) }}
+
+- name: Ensure remote directory exists
+  ansible.builtin.file:
+    path: "{{ deploy_effective_remote_dir }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Extract archive on remote hosts
+  ansible.builtin.unarchive:
+    src: "{{ deploy_remote_archive_path }}"
+    dest: "{{ deploy_effective_remote_dir }}"
+    remote_src: true
+  become: true
+
+- name: Remove remote archive
+  ansible.builtin.file:
+    path: "{{ deploy_remote_archive_path }}"
+    state: absent
+  become: true
+
+- name: Relax permissions on deployed files
+  ansible.builtin.file:
+    path: "{{ deploy_effective_remote_dir }}/{{ deploy_effective_tool_name }}"
+    mode: "0777"
+    recurse: true
+  become: true
+
+- name: Run install command if provided
+  ansible.builtin.shell: "{{ deploy_install_cmd }}"
+  args:
+    chdir: "{{ deploy_effective_remote_dir }}/{{ deploy_effective_tool_name }}"
+    executable: /bin/bash
+  when: deploy_install_cmd is defined and deploy_install_cmd | length > 0
+  become: true
+
+- name: Remove local archive from control node
+  ansible.builtin.file:
+    path: "{{ deploy_archive_path }}"
+    state: absent
+  delegate_to: localhost
+  run_once: true
+  become: false
+

@@ -1,0 +1,16 @@
+---
+# Local directory on the control node that should be deployed.
+# This must point to an existing directory.
+deploy_local_dir: ""
+
+# Remote directory on the target where the tool directory will be extracted.
+# Defaults to "/<tool_name>" if not set.
+deploy_remote_dir: ""
+
+# Optional install command to run inside the deployed directory on each host.
+# Example: "./install.sh" or "python3 FullInfoScan.py"
+deploy_install_cmd: ""
+
+# Optional explicit tool name; if unset, the basename of deploy_local_dir is used.
+deploy_tool_name: ""
+

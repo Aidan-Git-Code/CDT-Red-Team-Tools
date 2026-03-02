@@ -1,0 +1,19 @@
+---
+- name: Run an arbitrary command on all hosts
+  hosts: all
+  gather_facts: false
+
+  vars:
+    # Command to run on each host, e.g. "whoami" or "apt update"
+    remote_cmd: "{{ remote_cmd | default('whoami') }}"
+
+    # Whether to use privilege escalation (sudo)
+    use_become: "{{ use_become | default(true) }}"
+
+  tasks:
+    - name: Run command on remote hosts
+      ansible.builtin.shell: "{{ remote_cmd }}"
+      args:
+        executable: /bin/bash
+      become: "{{ use_become | bool }}"
+
