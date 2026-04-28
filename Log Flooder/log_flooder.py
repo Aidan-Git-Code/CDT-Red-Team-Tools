@@ -2,7 +2,7 @@
 # Seonho Park, scp4941@rit.edu
 
 import os, re, sys, json, time, socket, argparse, hashlib, threading, subprocess, pwd, grp
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from collections import defaultdict
 import logging
@@ -145,22 +145,48 @@ def load_findings(folder):
 
 # ---------------- FLOOD ----------------
 
-def flood_logs(rate, duration):
-    rate = min(rate, MAX_RATE)
-    duration = min(duration, MAX_DURATION)
-
-    logger = logging.getLogger("flood")
+def _setup_syslog_logger() -> logging.Logger:
+    """
+    Configure a logger that writes to /dev/log (Linux syslog Unix socket).
+    rsyslog and syslog-ng both listen on this socket on all major distros.
+    """
+    logger  = logging.getLogger("rt_flooder")
     logger.setLevel(logging.INFO)
-    logger.addHandler(SysLogHandler(address=SYSLOG_SOCKET))
+    handler = SysLogHandler(address=SYSLOG_SOCKET)
+    handler.setFormatter(logging.Formatter(f"{TAG}: %(message)s"))
+    logger.addHandler(handler)
+    return logger
 
-    end = time.time() + duration
 
-    print(f"[+] Flooding {rate}/sec for {duration}s")
+def flood_logs(rate: int, duration: int) -> None:
+    """
+    Write synthetic syslog entries at a controlled rate to bury real events.
 
-    while time.time() < end:
-        logger.info("test event noise")
-        time.sleep(1 / rate)
+    Rate and duration are capped at MAX_RATE / MAX_DURATION regardless of
+    caller input.  Uses time.monotonic() to avoid wall-clock drift.
+    """
+    rate     = min(rate, MAX_RATE)
+    duration = min(duration, MAX_DURATION)
+    logger   = _setup_syslog_logger()
+    interval = 1.0 / rate
+    deadline = time.monotonic() + duration
+    counter  = 0
 
+    print(f"[+] Flooding syslog at {rate} msg/sec for {duration}s …")
+
+    while time.monotonic() < deadline:
+        logger.info(
+            f"simulation_event id={counter} "
+            f"ts={datetime.now(timezone.utc).isoformat()} "
+            f"status=ok src=127.0.0.1 dst=10.0.0.1"
+        )
+        counter += 1
+        time.sleep(interval)
+
+    print(f"[+] Flood complete — {counter} entries written")
+
+
+# ---------------- CLI ------------------
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog = "log_flooder.py",
