@@ -28,7 +28,9 @@ def is_root():
     return os.geteuid() == 0
 
 def readable_logs(paths):
-
+    """
+    Filter to only readable files that actually exist.
+    """
     readable_files = []
     
     for path in paths:
@@ -63,6 +65,10 @@ def current_user_info() -> dict:
 # ---------------- LOG READING ----------------
 
 def read_logs(paths):
+    """
+    Read log files and return (path, line) tuples.
+    Handles missing files and encoding errors gracefully.
+    """
     entries = []
     for p in readable_logs(paths):
         try:
@@ -71,7 +77,8 @@ def read_logs(paths):
                     line = line.strip()
                     if line:
                         entries.append((p, line))
-        except:
+        except (IOError, OSError) as e:
+            print(f"[!] Failed to read {p}: {e}", file=sys.stderr)
             continue
     return entries
 
