@@ -143,6 +143,9 @@ def save_findings(data, folder):
     return file
 
 def load_findings(folder):
+    """
+    Load and deduplicate findings from JSON storage.
+    """
     results, seen = [], set()
 
     if not folder.exists():
@@ -155,7 +158,8 @@ def load_findings(folder):
                 if item["hash"] not in seen:
                     seen.add(item["hash"])
                     results.append(item)
-        except:
+        except (IOError, json.JSONDecodeError) as e:
+            print(f"[!] Failed to load {f}: {e}", file=sys.stderr)
             continue
 
     return results
