@@ -1,16 +1,42 @@
 # CTF Log Manipulation & Intelligence Tool
 
-Author: Seonho Park
+**Author:** Seonho Park — scp4941@rit.edu  
+**Category:** 3 (Destructive/Distracting) 
+**Language:** Python 3.6+ — standard library only, no pip install required  
+**Target OS:** Linux (tested on Ubuntu 22.04 / Kali 2024.1)
 
-Course: CSEC473 - Cyber Defence Techniques
+---
 
 ## Overview
 
-This tool is for Red Team, designed to disrupt logs in order to gain time advantages during cyber defense competitions.
+'log_flooder.py' is a modular log-based tool designed for Red Team usage in CTFs. 
+Its aim is to tackle four common problems that arise for Red Team with a single script:
 
-Blue Teams rely on logs to detect and investigate intrusions. By harvesting and generating log noise, Red Team pulls ahead with an intelligence difference while also increasing defender workload.
+| Problem | Feature |
+|---|---|
+| Blue Team reads logs to detect and investigate intrusions | **Log noise generation** — floods syslog with synthetic events, making tracking more difficult |
+| You want to understand what a target box is logging | **Log extraction & analysis** — reads accessible logs, extracts IPs, usernames, and error patterns to give Red Team a lead on intelligence |
+| You get kicked off of a Blue Team service or workstation | **TCP forwarding** — streams JSON findings to a central collector on your chosen Red Team box |
+| You need persistence | **Cron Job** — installs and removes a cron job entry in between reboots, so that even if you get booted, your tool can still be accessible at a later point |
 
-It operates in two modes depending on the level of privilege:
+Because of its application in CTFs specifically, this tool is intentionally non-destructive 
+and non-invasive. It only reads logs that you have access to, writes only to tbe local disk
+or a TCP socket you control, and cannot be used to modify or delete target system files.  
+
+---
+
+## Requirements & Dependencies
+
+| Requirement | Detail |
+|---|---|
+| Python | 3.6 or newer |
+| OS | Linux (syslog flooding requires `/dev/log`) |
+| Dependencies | **None** — stdlib only (`socket`, `json`, `logging`, `threading`, …) |
+| Flood privilege | `root` required for `--flood` only |
+| All other features | Unprivileged user |
+
+---
+
 
 Unprivileged Mode:
 - Reads and prints accessible system logs.

