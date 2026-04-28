@@ -187,9 +187,11 @@ def summarize(findings: list) -> dict:
             user_counts[user] += 1
         for flag in f.get("flags", []):
             flag_counts[flag] += 1
+        
         svc = f.get("service")
-        if svc:
+        if svc and len(svc) > 0:
             svc_counts[svc[0]] += 1
+        
         source_counts[f["source"]] += 1
 
     return {
@@ -228,17 +230,24 @@ def flood_logs(rate: int, duration: int) -> None:
     interval = 1.0 / rate
     deadline = time.monotonic() + duration
     counter  = 0
+    next_send = time.monotonic()
 
     print(f"[+] Flooding syslog at {rate} msg/sec for {duration}s …")
 
     while time.monotonic() < deadline:
-        logger.info(
-            f"simulation_event id={counter} "
-            f"ts={datetime.now(timezone.utc).isoformat()} "
-            f"status=ok src=127.0.0.1 dst=10.0.0.1"
-        )
-        counter += 1
-        time.sleep(interval)
+        now = time.monotonic()
+        
+        if now >= next_send:
+            logger.info(
+                f"simulation_event id={counter} "
+                f"ts={datetime.now(timezone.utc).isoformat()} "
+                f"status=ok src=127.0.0.1 dst=10.0.0.1"
+            )
+            counter += 1
+            next_send += interval
+        else:
+            # Sleep just before next send time
+            time.sleep(0.001)
 
     print(f"[+] Flood complete — {counter} entries written")
 
