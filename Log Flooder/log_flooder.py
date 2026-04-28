@@ -93,6 +93,10 @@ FAIL_RE = re.compile(
 PORT_RE = re.compile(r"\bport\s+(\d{1,5})\b", re.I)
 
 def analyze(paths, keywords):
+    """
+    Analyze logs for IPs, users, ports, and keyword matches.
+    Returns list of findings with extracted metadata.
+    """
     findings = []
 
     for path, line in read_logs(paths):
@@ -123,6 +127,9 @@ def analyze(paths, keywords):
 # ---------------- STORAGE ----------------
 
 def save_findings(data, folder):
+    """
+     Save findings to JSON with secure permissions (0600).
+    """
     folder.mkdir(exist_ok=True)
     name = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     file = folder / f"findings_{name}.json"
@@ -130,6 +137,9 @@ def save_findings(data, folder):
     with open(file, "w") as f:
         json.dump(data, f, indent=2)
 
+    os.chmod(file, 0o600)
+    print(f"[+] File permissions set to 0600")
+          
     return file
 
 def load_findings(folder):
