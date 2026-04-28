@@ -143,6 +143,33 @@ def load_findings(folder):
 
     return results
 
+# ---------------- SUMMARY ----------------
+
+def summarize(data):
+    ips, users, flags = defaultdict(int), defaultdict(int), defaultdict(int)
+
+    for d in data:
+        for ip in d["ips"]:
+            ips[ip] += 1
+        for u in d["users"]:
+            users[u] += 1
+        for f in d["flags"]:
+            flags[f] += 1
+
+    print("\n--- SUMMARY ---")
+    print("Total findings:", len(data))
+
+    print("\nTop IPs:")
+    for ip, n in sorted(ips.items(), key=lambda x: -x[1])[:5]:
+        print(f"{ip:<20} {n}")
+
+    print("\nTop Users:")
+    for u, n in sorted(users.items(), key=lambda x: -x[1])[:5]:
+        print(f"{u:<20} {n}")
+
+    print("\nFlags:")
+    print(dict(flags))
+
 # ---------------- FLOOD ----------------
 
 def _setup_syslog_logger() -> logging.Logger:
@@ -185,6 +212,23 @@ def flood_logs(rate: int, duration: int) -> None:
 
     print(f"[+] Flood complete — {counter} entries written")
 
+
+# ---------------- CRON ----------------
+
+def persist(script):
+    job = f"*/5 * * * * python3 {script}\n"
+    current = subprocess.getoutput("crontab -l 2>/dev/null")
+
+    if job not in current:
+        subprocess.run(["crontab", "-"], input=current + job, text=True)
+        print("[+] Cron added")
+
+def unpersist(script):
+    job = f"*/5 * * * * python3 {script}\n"
+    current = subprocess.getoutput("crontab -l")
+
+    subprocess.run(["crontab", "-"], input=current.replace(job, ""), text=True)
+    print("[+] Cron removed")
 
 # ---------------- CLI ------------------
 def build_parser() -> argparse.ArgumentParser:
