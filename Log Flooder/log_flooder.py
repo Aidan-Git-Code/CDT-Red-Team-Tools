@@ -327,6 +327,28 @@ def main():
         else:
             print("[*] Nothing to save — run --collect first")
 
+    if args.summary:
+        all_f = load_findings(storage_dir)
+        if not all_f:
+            print(f"[-] No stored findings in {storage_dir}")
+        else:
+            s = summarize(all_f)
+            print(f"\n{'─'*50}\n  Findings Summary ({storage_dir})\n{'─'*50}")
+            print(f"  Total            : {s['total_findings']}")
+            print(f"  Flags            : {s['flag_counts']}")
+            print("\n  Top IPs:")
+            for ip, n in s["top_ips"]:
+                print(f"    {ip:<22} {n:>5} hits")
+            print("\n  Top Users:")
+            for user, n in s["top_users"]:
+                print(f"    {user:<22} {n:>5} hits")
+            print("\n  Top Services (syslog process name):")
+            for svc, n in s["top_services"]:
+                print(f"    {svc:<22} {n:>5} hits")
+            print("\n  By Log File:")
+            for src, n in s["findings_by_file"].items():
+                print(f"    {src:<42} {n:>5}")
+
     if args.flood:
         if not is_root():
             print("[-] --flood requires root (uid 0)")
@@ -336,6 +358,17 @@ def main():
             sys.exit(1)
         flood_logs(args.rate, args.duration)
 
+    if args.persist:
+        persist(args.persist)
+
+    if args.unpersist:
+        unpersist(args.unpersist)
+
+    if not any([
+        args.serve, args.raw, args.collect, args.save, args.summary,
+        args.forward, args.flood, args.persist, args.unpersist,
+    ]):
+        parser.print_help()
 
 if __name__ == "__main__":
     main()
