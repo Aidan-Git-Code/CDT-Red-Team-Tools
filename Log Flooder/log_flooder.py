@@ -199,18 +199,22 @@ def main():
             svc_str = f"{svc[0]}[{svc[1]}]" if svc else "?"
             print(f"  [{f['source']}] {svc_str} [{', '.join(tags) or '—'}] {f['line'][:110]}")
 
+    if args.save:
+        if findings:
+            out = save_findings(findings, storage_dir)
+            print(f"[+] Findings saved → {out}  (chmod 600)")
+        else:
+            print("[*] Nothing to save — run --collect first")
 
-    for path, line in entries[:100]:  # Display first 100 entries
-        print(f"[{path}] {line}")
-
-    print(f"[+] {len(entries)} total log entries read")
-
-    # Log flooding
     if args.flood:
         if not is_root():
-            print("[-] Flooding requires root privileges.")
-        else:
-            flood_logs(args.rate, args.duration)
+            print("[-] --flood requires root (uid 0)")
+            sys.exit(1)
+        if not Path(SYSLOG_SOCKET).exists():
+            print(f"[-] {SYSLOG_SOCKET} not found — is rsyslog/syslog-ng running?")
+            sys.exit(1)
+        flood_logs(args.rate, args.duration)
+
 
 if __name__ == "__main__":
     main()
