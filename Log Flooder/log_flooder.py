@@ -16,7 +16,7 @@ MAX_DURATION = 300     # seconds; 300s = 5 min cap
 DEFAULT_LOGS = [
     "/var/log/syslog",
     "/var/log/auth.log",
-    "/var/log/messages"
+    "/var/log/messages",
     "/var/log/secure",
 ]
 STORAGE_DIR = Path("./rt_logs")
@@ -91,6 +91,7 @@ FAIL_RE = re.compile(
     re.I,
 )
 PORT_RE = re.compile(r"\bport\s+(\d{1,5})\b", re.I)
+SERVICE_RE = re.compile(r"^([a-zA-Z0-9\-_]+)(?:\[|\:)", re.I)
 
 def analyze(paths, keywords):
     """
@@ -103,6 +104,8 @@ def analyze(paths, keywords):
         ips = IP_RE.findall(line)
         users = USER_RE.findall(line)
         ports = PORT_RE.findall(line)
+        service_match = SERVICE_RE.match(line)
+        service = (service_match.group(1),) if service_match else None
         flags = []
         kws = [k for k in keywords if k.lower() in line.lower()]
 
@@ -117,6 +120,7 @@ def analyze(paths, keywords):
                 "ips": ips,
                 "users": users,
                 "ports": ports,
+                "service": service,
                 "keywords": kws,
                 "flags": flags,
                 "hash": hashlib.sha256(line.encode()).hexdigest()
