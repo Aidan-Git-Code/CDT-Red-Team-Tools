@@ -112,7 +112,7 @@ def analyze(paths, keywords):
         kws = [k for k in keywords if k.lower() in line.lower()]
 
         if FAIL_RE.search(line):
-            flags.append("failure")
+            flags.append("auth_failure_or_error")
 
         if ips or users or kws or flags:
             findings.append({
