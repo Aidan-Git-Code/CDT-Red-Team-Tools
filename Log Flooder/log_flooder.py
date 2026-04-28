@@ -19,8 +19,10 @@ DEFAULT_LOGS = [
     "/var/log/messages",
     "/var/log/secure",
 ]
+
 STORAGE_DIR = Path("./rt_logs")
 SYSLOG_SOCKET = "/dev/log"
+DEFAULT_PORT  = 5140         # default TCP port for log forwarding
 
 # ---------------- ENV ----------------
 
@@ -202,6 +204,83 @@ def summarize(findings: list) -> dict:
         "flag_counts":      dict(flag_counts),
         "findings_by_file": dict(source_counts),
     }
+
+# ---------------- FORWARD ----------------
+
+class Forwarder:
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
+
+    def send(self, data):
+        sent = 0
+        try:
+            sock = socket.create_connection((self.host, self.port), timeout=5)
+        except Exception as e:
+            print("[-] Connection failed:", e)
+            return
+
+        with sock:
+            for d in data:
+                try:
+                    payload = json.dumps(d).encode()
+                    sock.sendall(len(payload).to_bytes(4, "big") + payload)
+                    sent += 1
+                except:
+                    break
+
+        print(f"[+] Sent {sent} records")
+
+# ---------------- SERVER ----------------
+
+class Server:
+    def __init__(self, host, port, folder):
+        self.host = host
+        self.port = port
+        self.folder = folder
+        self.buffer = []
+        self.lock = threading.Lock()
+
+    def handle(self, conn):
+        raw = b""
+        while True:
+            chunk = conn.recv(4096)
+            if not chunk:
+                break
+            raw += chunk
+
+        for line in raw.split(b"\n"):
+            try:
+                data = json.loads(line.strip())
+                with self.lock:
+                    self.buffer.append(data)
+            except:
+                pass
+
+        conn.close()
+        self.flush()
+
+    def flush(self):
+        with self.lock:
+            if not self.buffer:
+                return
+            data = self.buffer[:]
+            self.buffer.clear()
+
+        file = save_findings(data, self.folder)
+        print(f"[+] Saved {len(data)} → {file}")
+
+    def run(self):
+        s = socket.socket()
+        s.bind((self.host, self.port))
+        s.listen()
+
+        print(f"[+] Server on {self.host}:{self.port}")
+
+        while True:
+            conn, _ = s.accept()
+            threading.Thread(target=self.handle, args=(conn,), daemon=True).start()
+
 # ---------------- FLOOD ----------------
 
 def _setup_syslog_logger() -> logging.Logger:
@@ -349,6 +428,17 @@ Examples:
     act.add_argument("--save",    action="store_true", help="Save findings to local JSON store")
     act.add_argument("--summary", action="store_true", help="Summarise all stored findings")
 
+    fwd = parser.add_argument_group("Forwarding")
+    fwd.add_argument("--forward",  metavar="HOST", help="Forward findings to this host")
+    fwd.add_argument("--port",     type=int, default=DEFAULT_PORT,
+                     help=f"TCP port (default: {DEFAULT_PORT})")
+    fwd.add_argument("--send-raw", action="store_true",
+                     help="Forward raw lines instead of analysed findings")
+
+    srv = parser.add_argument_group("Collection Server")
+    srv.add_argument("--serve", action="store_true", help="Run collection server (blocks)")
+    srv.add_argument("--bind",  default="0.0.0.0",   help="Bind address (default: 0.0.0.0)")
+
     nz = parser.add_argument_group("Noise Generation")
     nz.add_argument("--flood",    action="store_true", help="Generate syslog noise (root required)")
     nz.add_argument("--rate",     type=int, default=5,
@@ -423,6 +513,22 @@ def main():
             for src, n in s["findings_by_file"].items():
                 print(f"    {src:<42} {n:>5}")
 
+    if args.forward:
+        forwarder = Forwarder(args.forward, args.port)
+        if args.send_raw:
+            print("[+] Forwarding raw log lines …")
+            sent, failed = forwarder.send_raw_lines(read_logs(args.logs))
+        else:
+            if not findings:
+                print("[*] No findings to forward — add --collect to this invocation")
+                sys.exit(0)
+            sent, failed = forwarder.send(findings)
+        print(f"[+] Forwarded {sent} to {args.forward}:{args.port}  (failed: {failed})")
+
+    if args.serve:
+        Server(args.bind, args.port, storage_dir).run()
+        return
+    
     if args.flood:
         if not is_root():
             print("[-] --flood requires root (uid 0)")
@@ -439,8 +545,8 @@ def main():
         unpersist(args.unpersist)
 
     if not any([
-        args.serve, args.raw, args.collect, args.save, args.summary,
-        args.forward, args.flood, args.persist, args.unpersist,
+        args.raw, args.collect, args.save, args.summary,
+        args.flood, args.persist, args.unpersist,
     ]):
         parser.print_help()
 
