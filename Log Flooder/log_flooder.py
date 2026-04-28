@@ -26,116 +26,76 @@ STORAGE_DIR = Path("./rt_logs")
 def is_root():
     return os.geteuid() == 0
 
-# ---------------------------------------------------------------------------
-# Pattern-based log analysis / info extraction
-# ---------------------------------------------------------------------------
+def readable_logs(paths):
 
-# Pre-compiled patterns — compile once, reuse for every line.
-_IP_RE   = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
-_USER_RE = re.compile(r"user(?:name)?[=:\s]+([a-zA-Z0-9_@.-]+)", re.IGNORECASE)
-_FAIL_RE = re.compile(
-    r"(failed|failure|invalid|unauthorized|denied|error|refused|rejected)",
-    re.IGNORECASE,
-)
-_PORT_RE = re.compile(r"\bport\s+(\d{1,5})\b", re.IGNORECASE)
-
-
-#   Scan log files and return structured findings.
-def extract_info(log_paths: list[str], keywords: list[str],) -> list[dict]:
-
-    findings: list[dict] = []
-
-    for path in log_paths:
-        if not os.path.exists(path):
+    readable_files = []
+    
+    for path in paths:
+        # Check if the path points to an actual file
+        if not os.path.isfile(path):
             continue
+            
+        # Check if the file is readable by the current user
+        if not os.access(path, os.R_OK):
+            continue
+            
+        readable_files.append(path)
+    
+    return readable_files
+
+# ---------------- LOG READING ----------------
+
+def read_logs(paths):
+    entries = []
+    for p in readable_logs(paths):
         try:
-            with open(path, "r", errors="ignore") as fh:
-                for raw_line in fh:
-                    line = raw_line.strip()
-                    if not line:
-                        continue
-
-                    matched_kw  = [kw for kw in keywords if kw.lower() in line.lower()]
-                    ips         = _IP_RE.findall(line)
-                    users       = _USER_RE.findall(line)
-                    ports       = _PORT_RE.findall(line)
-                    flags: list[str] = []
-
-                    if _FAIL_RE.search(line):
-                        flags.append("auth_failure_or_error")
-
-                    # Only record lines that matched something of interest.
-                    if matched_kw or ips or users or flags:
-                        findings.append({
-                            "source":    path,                                      # log file path
-                            "line":      line,                                      # original log line
-                            "timestamp": datetime.now(timezone.utc).isoformat(),    # time the line was processed
-                            "ips":       ips,                                       # list of IP addresses found in the line
-                            "users":     users,                                     # list of users found in the line
-                            "ports":     ports,                                     # list of port numbers found in the line
-                            "keywords":  matched_kw,                                # list of keywords to matched
-                            "flags":     flags,                                     # list of detected flags
-                            "hash":      hashlib.sha256(line.encode()).hexdigest(), # hash of the line
-                        })
-        except PermissionError:
+            with open(p, errors="ignore") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        entries.append((p, line))
+        except:
             continue
+    return entries
+
+# ---------------- ANALYSIS ----------------
+
+IP_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+USER_RE = re.compile(r"user(?:name)?[=:\s]+([a-zA-Z0-9_@.-]+)", re.I)
+FAIL_RE = re.compile(
+    r"(failed|failure|invalid|unauthorized|denied|error|refused|rejected)",
+    re.I,
+)
+PORT_RE = re.compile(r"\bport\s+(\d{1,5})\b", re.I)
+
+def analyze(paths, keywords):
+    findings = []
+
+    for p, line in read_logs(paths):
+        ips = IP_RE.findall(line)
+        users = USER_RE.findall(line)
+        ports = PORT_RE.findall(line)
+        flags = []
+        kws = [k for k in keywords if k.lower() in line.lower()]
+
+        if FAIL_RE.search(line):
+            flags.append("failure")
+
+        if ips or users or kws or flags:
+            findings.append({
+                "source": p,
+                "line": line,
+                "time": datetime.utcnow().isoformat(),
+                "ips": ips,
+                "users": users,
+                "ports": ports,
+                "keywords": kws,
+                "flags": flags,
+                "hash": hashlib.sha256(line.encode()).hexdigest()
+            })
 
     return findings
 
-# ---------------------------------------------------------------------------
-# Structured local storage
-# ---------------------------------------------------------------------------
-
-def save_findings(findings: list[dict], storage_dir: Path) -> Path:
-    """
-    Persist findings to a timestamped JSON file in *storage_dir*.
-
-    The directory is created if it does not already exist.
-    Returns the path of the written file.
-    """
-    storage_dir.mkdir(parents=True, exist_ok=True)
-    ts      = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    outfile = storage_dir / f"findings_{ts}.json"
-
-    with open(outfile, "w") as fh:
-        json.dump(
-            {
-                "generated":  ts,
-                "total":      len(findings),
-                "findings":   findings,
-            },
-            fh,
-            indent=2,
-        )
-
-    return outfile
-
-
-def load_findings(storage_dir: Path) -> list[dict]:
-    """
-    Load and merge all previously saved finding files from *storage_dir*.
-
-    Duplicates are removed based on the SHA-256 hash of each log line.
-    """
-    if not storage_dir.exists():
-        return []
-
-    seen:   set[str]   = set()
-    merged: list[dict] = []
-
-    for jf in sorted(storage_dir.glob("findings_*.json")):
-        try:
-            with open(jf) as fh:
-                data = json.load(fh)
-            for entry in data.get("findings", []):
-                h = entry.get("hash", "")
-                if h and h not in seen:
-                    seen.add(h)
-                    merged.append(entry)
-        except (json.JSONDecodeError, KeyError):
-            continue
-
-    return merged
 
 # Reads logs accessible to current users and returns raw log lines
 def read_logs(log_paths):
