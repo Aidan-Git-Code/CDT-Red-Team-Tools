@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Seonho Park, scp4941@rit.edu
 
-import os, re, sys, json, time, socket, argparse, hashlib, threading, subprocess
+import os, re, sys, json, time, socket, argparse, hashlib, threading, subprocess, pwd, grp
 from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
@@ -43,6 +43,22 @@ def readable_logs(paths):
         readable_files.append(path)
     
     return readable_files
+
+def current_user_info() -> dict:
+    """
+    Return the current process's user/group info via pwd/grp (Linux stdlib).
+    """
+    uid = os.geteuid()
+    gid = os.getegid()
+    try:
+        uname = pwd.getpwuid(uid).pw_name
+    except KeyError:
+        uname = str(uid)
+    try:
+        gname = grp.getgrgid(gid).gr_name
+    except KeyError:
+        gname = str(gid)
+    return {"uid": uid, "gid": gid, "user": uname, "group": gname}
 
 # ---------------- LOG READING ----------------
 
@@ -157,43 +173,32 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main():
-
-
-    parser.add_argument(
-        "--logs",
-        nargs="*",
-        default=DEFAULT_LOGS,
-        help="Log files to read"
-    )
-
-    parser.add_argument(
-        "--enable-flood",
-        action="store_true",
-        help="Enable log flooding (requires root)"
-    )
-
-    parser.add_argument(
-        "--rate",
-        type=int,
-        default=5,
-        help=f"Messages per second (max {MAX_RATE})"
-    )
-
-    parser.add_argument(
-        "--duration",
-        type=int,
-        default=30,
-        help=f"Flood duration in seconds (max {MAX_DURATION})"
-    )
-
+    parser = build_parser()
     args = parser.parse_args()
 
+    storage_dir = Path(args.storage_dir)
+    ui = current_user_info()
 
-    print(f"[+] Running as {'root' if privileged else 'unprivileged'} user")
+    print(f"[+] log_tool.py | user={ui['user']} uid={ui['uid']} | Linux")
 
-    # Log collection
-    print("[+] Reading logs...")
-    entries = read_logs(args.logs)
+    if args.raw:
+        print("[+] Reading raw log entries …")
+        entries = read_logs(args.logs)
+        for path, line in entries[:100]:
+            print(f"  [{path}] {line}")
+        print(f"[+] {len(entries)} total raw entries")
+
+    findings = []
+    if args.collect:
+        print(f"[+] Analysing logs — keywords: {args.keywords}")
+        findings = analyze(args.logs, args.keywords)
+        print(f"[+] {len(findings)} findings extracted")
+        for f in findings[:50]:
+            tags    = f["keywords"] + f["flags"]
+            svc     = f["service"]
+            svc_str = f"{svc[0]}[{svc[1]}]" if svc else "?"
+            print(f"  [{f['source']}] {svc_str} [{', '.join(tags) or '—'}] {f['line'][:110]}")
+
 
     for path, line in entries[:100]:  # Display first 100 entries
         print(f"[{path}] {line}")
