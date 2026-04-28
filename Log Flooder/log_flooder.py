@@ -20,6 +20,7 @@ DEFAULT_LOGS = [
     "/var/log/secure",
 ]
 STORAGE_DIR = Path("./rt_logs")
+SYSLOG_SOCKET = "/dev/log"
 
 # ---------------- ENV ----------------
 
@@ -71,7 +72,7 @@ PORT_RE = re.compile(r"\bport\s+(\d{1,5})\b", re.I)
 def analyze(paths, keywords):
     findings = []
 
-    for p, line in read_logs(paths):
+    for path, line in read_logs(paths):
         ips = IP_RE.findall(line)
         users = USER_RE.findall(line)
         ports = PORT_RE.findall(line)
@@ -83,7 +84,7 @@ def analyze(paths, keywords):
 
         if ips or users or kws or flags:
             findings.append({
-                "source": p,
+                "source": path,
                 "line": line,
                 "time": datetime.utcnow().isoformat(),
                 "ips": ips,
@@ -96,58 +97,23 @@ def analyze(paths, keywords):
 
     return findings
 
+# ---------------- FLOOD ----------------
 
-# Reads logs accessible to current users and returns raw log lines
-def read_logs(log_paths):
-    entries = []
-    for path in log_paths:
-        if not os.path.exists(path):
-            continue
-        try:
-            with open(path, "r", errors="ignore") as file:
-                for line in file:
-                    entries.append((path, line.strip()))
-        except PermissionError:
-            continue # Expected for unprivileged users
-    return entries
-
-# Controlled Log Flooder
-def setup_syslog():
-    logger = logging.getLogger("ctf_flooder")
-    logger.setLevel(logging.INFO)
-
-    handler = SysLogHandler(address="/dev/log")
-    formatter = logging.Formatter(f"{TAG}: %(message)s")
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-
-    return logger
-
-# Floods logs with synthetic log entries
 def flood_logs(rate, duration):
     rate = min(rate, MAX_RATE)
     duration = min(duration, MAX_DURATION)
 
-    logger = setup_syslog()
+    logger = logging.getLogger("flood")
+    logger.setLevel(logging.INFO)
+    logger.addHandler(SysLogHandler(address=SYSLOG_SOCKET))
 
-    print(f"[+] Flooding logs at {rate} msg/sec for {duration}s")
+    end = time.time() + duration
 
-    interval = 1.0 / rate
-    end_time = time.time() + duration
-    counter = 0
+    print(f"[+] Flooding {rate}/sec for {duration}s")
 
-    while time.time() < end_time:
-        msg = (
-            f"simulation_event id={counter} "
-            f"timestamp={datetime.utcnow().isoformat()} "
-            f"status=ok"
-        )
-
-        logger.info(msg)
-        counter += 1
-        time.sleep(interval)
-
-    print(f"[+] Flood complete ({counter} entries written)")
+    while time.time() < end:
+        logger.info("test event noise")
+        time.sleep(1 / rate)
 
 def main():
     parser = argparse.ArgumentParser(
