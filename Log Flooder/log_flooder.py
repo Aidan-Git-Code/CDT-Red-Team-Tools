@@ -145,31 +145,36 @@ def load_findings(folder):
 
 # ---------------- SUMMARY ----------------
 
-def summarize(data):
-    ips, users, flags = defaultdict(int), defaultdict(int), defaultdict(int)
+def summarize(findings: list) -> dict:
+    """
+    Produce a concise situational-awareness summary of collected findings.
+    """
+    ip_counts     = defaultdict(int)
+    user_counts   = defaultdict(int)
+    flag_counts   = defaultdict(int)
+    svc_counts    = defaultdict(int)
+    source_counts = defaultdict(int)
 
-    for d in data:
-        for ip in d["ips"]:
-            ips[ip] += 1
-        for u in d["users"]:
-            users[u] += 1
-        for f in d["flags"]:
-            flags[f] += 1
+    for f in findings:
+        for ip   in f.get("ips",   []):
+            ip_counts[ip] += 1
+        for user in f.get("users", []):
+            user_counts[user] += 1
+        for flag in f.get("flags", []):
+            flag_counts[flag] += 1
+        svc = f.get("service")
+        if svc:
+            svc_counts[svc[0]] += 1
+        source_counts[f["source"]] += 1
 
-    print("\n--- SUMMARY ---")
-    print("Total findings:", len(data))
-
-    print("\nTop IPs:")
-    for ip, n in sorted(ips.items(), key=lambda x: -x[1])[:5]:
-        print(f"{ip:<20} {n}")
-
-    print("\nTop Users:")
-    for u, n in sorted(users.items(), key=lambda x: -x[1])[:5]:
-        print(f"{u:<20} {n}")
-
-    print("\nFlags:")
-    print(dict(flags))
-
+    return {
+        "total_findings":   len(findings),
+        "top_ips":          sorted(ip_counts.items(),   key=lambda x: -x[1])[:10],
+        "top_users":        sorted(user_counts.items(), key=lambda x: -x[1])[:10],
+        "top_services":     sorted(svc_counts.items(),  key=lambda x: -x[1])[:10],
+        "flag_counts":      dict(flag_counts),
+        "findings_by_file": dict(source_counts),
+    }
 # ---------------- FLOOD ----------------
 
 def _setup_syslog_logger() -> logging.Logger:
