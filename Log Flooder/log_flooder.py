@@ -97,6 +97,36 @@ def analyze(paths, keywords):
 
     return findings
 
+# ---------------- STORAGE ----------------
+
+def save_findings(data, folder):
+    folder.mkdir(exist_ok=True)
+    name = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    file = folder / f"findings_{name}.json"
+
+    with open(file, "w") as f:
+        json.dump(data, f, indent=2)
+
+    return file
+
+def load_findings(folder):
+    results, seen = [], set()
+
+    if not folder.exists():
+        return results
+
+    for f in folder.glob("findings_*.json"):
+        try:
+            data = json.load(open(f))
+            for item in data:
+                if item["hash"] not in seen:
+                    seen.add(item["hash"])
+                    results.append(item)
+        except:
+            continue
+
+    return results
+
 # ---------------- FLOOD ----------------
 
 def flood_logs(rate, duration):
@@ -115,10 +145,19 @@ def flood_logs(rate, duration):
         logger.info("test event noise")
         time.sleep(1 / rate)
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Log collection and flood tool"
+        prog = "log_flooder.py",
+        description="Log collection and flooding tool",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="TODO: bleh >w<"
     )
+    
+    return parser
+
+
+def main():
+
 
     parser.add_argument(
         "--logs",
